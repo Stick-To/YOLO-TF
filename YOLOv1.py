@@ -30,6 +30,7 @@ class YOLOv1:
         self.batch_size = config['batch_size']
         self.coord = config['coord']
         self.noobj = config['noobj']
+        self.threshold = config['IOU']
         self.grid_cell_H = self.H / config['S']
         self.grid_cell_W = self.W / config['S']
 
@@ -67,6 +68,7 @@ class YOLOv1:
             global_pool = tf.reduce_mean(features, axis=axes, name='global_pool')
             pre_classifier = tf.layers.dense(global_pool, self.num_classes, name='pretraining_classifier')
             pre_loss = tf.losses.softmax_cross_entropy(self.pretraining_labels, pre_classifier, reduction=tf.losses.Reduction.MEAN)
+            self.pre_category_pred = tf.argmax(pre_classifier, 1)
             self.pretraining_accuracy = tf.reduce_mean(
                 tf.cast(tf.equal(tf.argmax(pre_classifier, 1), tf.argmax(self.pretraining_labels, 1)), tf.float32), name='accuracy'
             )
@@ -82,6 +84,7 @@ class YOLOv1:
             predictions = tf.reshape(final_dense, [self.batch_size, self.S*self.S, self.B*5+self.num_classes], name='predictions')
 
             total_loss = []
+            mAP = [[] for i in range(len(self.threshold))]
             for i in range(self.batch_size):
                 bbox_ground_truth_xy = self.bbox_ground_truth[i, :, :2]
                 bbox_ground_truth_hw = self.bbox_ground_truth[i, :, 2:]
@@ -107,18 +110,26 @@ class YOLOv1:
                 bbox_hw = bbox[:, 2:]
                 iou_area = tf.reduce_prod(bbox_xy - bbox_ground_truth_xy, axis=1)
                 iou_rate = iou_area / (tf.reduce_prod(bbox_hw, axis=1) + tf.reduce_prod(bbox_ground_truth_hw, axis=1) - iou_area)
-                responsible_bbox = tf.expand_dims(tf.nn.embedding_lookup(bbox, tf.argmax(iou_rate, axis=0)), axis=0)
+                self.predicted_bbox = tf.expand_dims(tf.nn.embedding_lookup(bbox, tf.argmax(iou_rate, axis=0)), axis=0)
                 confidence_obj_ground_truth = tf.nn.embedding_lookup(iou_rate, tf.argmax(iou_rate, axis=0))
                 confidence_obj = tf.nn.embedding_lookup(confidence, tf.argmax(iou_rate, axis=0))
                 location_loss = self.coord * tf.reduce_sum(
-                    tf.square(responsible_bbox[:, :2] - bbox_ground_truth_xy) +
-                    tf.square(tf.sqrt(responsible_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw))
+                    tf.square(self.predicted_bbox[:, :2] - bbox_ground_truth_xy) +
+                    tf.square(tf.sqrt(self.predicted_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw))
                 )
                 confidence_loss = self.noobj * (tf.reduce_sum(tf.square(confidence)) - tf.reduce_sum(tf.square(confidence_obj))) \
                     + tf.reduce_sum(tf.square(confidence_obj - confidence_obj_ground_truth))
                 classifier_loss = tf.reduce_sum(tf.cast(classifier_ground_truth, tf.float32) - classifier)
                 loss = location_loss + confidence_loss + classifier_loss
+                self.category_pred = tf.argmax(classifier, 1)
+                category_ground_truth = tf.argmax(classifier_ground_truth, 1)
+                for j in range(len(self.threshold)):
+                    AP_mask = tf.where(iou_rate > self.threshold[j], tf.where(tf.equal(self.category_pred, category_ground_truth), iou_rate-iou_rate+1.,
+                                       iou_rate-iou_rate), iou_rate-iou_rate)
+                    AP = tf.reduce_mean(iou_rate * AP_mask)
+                    mAP[j].append(AP)
                 total_loss.append(loss)
+            self.mAP = tf.reduce_mean(mAP)
             total_loss = tf.reduce_mean(total_loss)
         with tf.variable_scope('optimizer'):
             optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=0.9)
@@ -227,25 +238,68 @@ class YOLOv1:
         if mode == 'pretraining':
             accuracy = self.pretraining_accuracy
             global_step = self.pretraining_labels
-            _, loss, acc, summaries = sess_.run([self.train_op, self.loss, accuracy, self.summary_op], feed_dict={
-                                     self.images: images,
-                                     self.pretraining_labels: labels['pretraining_labels'],
-                                     self.lr: lr
-                                 })
+            feed_dict = {self.images: images,
+                         self.pretraining_labels: labels['pretraining_labels'],
+                         self.lr: lr}
         else:
-            accuracy = self.pretraining_accuracy
+            accuracy = self.mAP
             global_step = self.global_step
-            _, loss, acc, summaries = sess_.run([self.train_op, self.loss, accuracy, self.summary_op], feed_dict={
-                                     self.images: images,
-                                     self.labels: labels['labels'],
-                                     self.bbox_ground_truth: labels['bbox'],
-                                     self.lr: lr
-                                 })
+            feed_dict = {self.images: images,
+                         self.labels: labels['labels'],
+                         self.bbox_ground_truth: labels['bbox'],
+                         self.lr: lr}
+        _, loss, acc, summaries = sess_.run([self.train_op, self.loss, accuracy, self.summary_op], feed_dict=feed_dict)
         if writer is not None:
             writer.add_summary(summaries, global_step=global_step)
         return loss, acc
 
-
+    def validate_one_batch(self, images, labels, mode='detection', writer=None, sess=None):
+        self.is_training = False
+        assert mode in ['detection', 'pretraining']
+        if sess is None:
+            sess_ = self.sess
+        else:
+            sess_ = sess
+        if mode == 'pretraining':
+            accuracy = self.pretraining_accuracy
+            global_step = self.pretraining_labels
+            feed_dict = {self.images: images,
+                         self.pretraining_labels: labels['pretraining_labels'],
+                         self.lr: 0.}
+        else:
+            accuracy = self.mAP
+            global_step = self.global_step
+            feed_dict = {self.images: images,
+                         self.labels: labels['labels'],
+                         self.bbox_ground_truth: labels['bbox'],
+                         self.lr: 0.}
+        loss, acc, summaries = sess_.run([self.loss, accuracy, self.summary_op], feed_dict=feed_dict)
+        if writer is not None:
+            writer.add_summary(summaries, global_step=global_step)
+        return loss, acc
+    
+    def test_one_batch(self, images, labels, mode='detection', sess=None):
+        self.is_training = False
+        assert mode in ['detection', 'pretraining']
+        if sess is None:
+            sess_ = self.sess
+        else:
+            sess_ = sess
+        if mode == 'pretraining':
+            category, acc = sess_.run([self.pre_category_pred, self.pretraining_accuracy], feed_dict={
+                                     self.images: images,
+                                     self.pretraining_labels: labels['pretraining_labels'],
+                                     self.lr: 0.
+                                 })
+            return category, acc
+        else:
+            category, bbox = sess_.run([self.category_pred, self.predicted_bbox], feed_dict={
+                                     self.images: images,
+                                     self.labels: labels['labels'],
+                                     self.bbox_ground_truth: labels['bbox'],
+                                     self.lr: 0.
+                                 })
+            return category, bbox
 
     def save_weight(self, mode, path, sess=None):
         assert(mode in ['pretraining_latest', 'pretraining_best', 'detection_latest', 'detection_best'])

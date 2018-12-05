@@ -1,7 +1,4 @@
 import tensorflow as tf
-import keras
-from keras.datasets import cifar10
-from keras.datasets import cifar100
 import YOLOv1 as net
 import numpy as np
 import os
@@ -19,17 +16,16 @@ config = {
     'batch_size': 64,
     'coord': 5.0,
     'noobj': 0.5,
+    'IOU': [0.1 * i for i in range(11)]
 }
 
 mean = np.array([123.68, 116.779, 103.979]).reshape((1, 1, 1, 3))
-data_shape = (224, 224, 3)
+data_shape = (448, 448, 3)
 num_train = 50000
 num_test = 10000
 num_classes = 20
-train_batch_size = 128
-test_batch_size = 200
-epochs = 200
-weight_decay = 1e-4
+epochs = 135
+weight_decay = 5e-4
 lr = 0.01
 
 testnet = net.YOLOv1(config, data_shape, num_classes, weight_decay, 'channels_last')
