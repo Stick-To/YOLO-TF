@@ -6,12 +6,13 @@ import os
 
 
 class YOLOv1:
-    def __init__(self, config, input_shape, num_classes, weight_decay, data_format):
+    def __init__(self, config, input_shape, num_classes, weight_decay, keep_prob, data_format):
 
         assert len(input_shape) == 3
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.weight_decay = weight_decay
+        self.prob = 1. - keep_prob
         assert data_format in ['channels_first', 'channels_last']
         self.data_format = data_format
         if data_format == 'channels_last':
@@ -30,7 +31,9 @@ class YOLOv1:
         self.batch_size = config['batch_size']
         self.coord = config['coord']
         self.noobj = config['noobj']
-        self.threshold = config['IOU']
+        self.nms_score_threshold = config['nms_score_threshold']
+        self.nms_max_boxes = config['nms_max_boxes']
+        self.nms_iou_threshold = config['nms_iou_threshold']
         self.grid_cell_H = self.H / config['S']
         self.grid_cell_W = self.W / config['S']
 
@@ -51,12 +54,12 @@ class YOLOv1:
         pass
 
     def _define_inputs(self):
-        shape = [self.batch_size]
+        shape = [None]
         shape.extend(self.input_shape)
         self.images = tf.placeholder(dtype=tf.float32, shape=shape, name='images')
         self.labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, None, self.num_classes], name='labels')
-        self.pretraining_labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, self.num_classes], name='pre_training_labels')
-        self.bbox_ground_truth = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, None, 4], name='bbox_ground_truth')
+        self.pretraining_labels = tf.placeholder(dtype=tf.int32, shape=[None, self.num_classes], name='pre_training_labels')
+        self.bbox_ground_truth = tf.placeholder(dtype=tf.float32, shape=[None, None, 4], name='bbox_ground_truth')
         self.lr = tf.placeholder(dtype=tf.float32, shape=[], name='lr')
 
     def _build_graph(self):
@@ -80,11 +83,14 @@ class YOLOv1:
             flatten = tf.layers.flatten(lrelu2, name='flatten')
             fc1 = tf.layers.dense(flatten, 4096, name='fc1')
             lrelu_fc1 = tf.nn.leaky_relu(fc1, 0.1, name='lrelu_fc1')
-            final_dense = tf.layers.dense(lrelu_fc1, self.final_predictions, name='final_dense')
+            dropout = self._dropout(lrelu_fc1, name='dropout')
+            final_dense = tf.layers.dense(dropout, self.final_predictions, name='final_dense')
             predictions = tf.reshape(final_dense, [self.batch_size, self.S*self.S, self.B*5+self.num_classes], name='predictions')
-
+            classifier = predictions[:, :, :self.num_classes]
+            confidence = predictions[:, :, self.num_classes:self.num_classes+self.B]
+            bbox = predictions[:, :, self.num_classes+self.B:]
+        with tf.variable_scope('train'):
             total_loss = []
-            mAP = [[] for i in range(len(self.threshold))]
             for i in range(self.batch_size):
                 bbox_ground_truth_xy = self.bbox_ground_truth[i, :, :2]
                 bbox_ground_truth_hw = self.bbox_ground_truth[i, :, 2:]
@@ -98,39 +104,58 @@ class YOLOv1:
                     + tf.expand_dims(tf.reduce_sum(self.grid_cells_centroid**2, axis=1), axis=0)
                 responsible_grid_cell = tf.argmin(dist_truth_cells, axis=1)
 
-                classifier = predictions[i, :, :self.num_classes]
-                confidence = predictions[i, :, self.num_classes:self.num_classes+self.B]
-                bbox = predictions[i, :, self.num_classes+self.B:]
-                classifier = tf.nn.embedding_lookup(classifier, responsible_grid_cell)
-                confidence = tf.nn.embedding_lookup(confidence, responsible_grid_cell)
-                bbox = tf.nn.embedding_lookup(bbox, responsible_grid_cell)
+                responsible_classifier = tf.nn.embedding_lookup(classifier[i, :, :], responsible_grid_cell)
+                responsible_confidence = tf.nn.embedding_lookup(confidence[i, :, :], responsible_grid_cell)
+                responsible_bbox = tf.nn.embedding_lookup(bbox[i, :, :], responsible_grid_cell)
+                responsible_bbox = tf.reshape(responsible_bbox, [self.B, 4])
 
-                bbox = tf.reshape(bbox, [self.B, 4]) * self.normalize_factor
-                bbox_xy = bbox[:, :2]
-                bbox_hw = bbox[:, 2:]
-                iou_area = tf.reduce_prod(bbox_xy - bbox_ground_truth_xy, axis=1)
-                iou_rate = iou_area / (tf.reduce_prod(bbox_hw, axis=1) + tf.reduce_prod(bbox_ground_truth_hw, axis=1) - iou_area)
-                self.predicted_bbox = tf.expand_dims(tf.nn.embedding_lookup(bbox, tf.argmax(iou_rate, axis=0)), axis=0)
+                denormalize_responsible_bbox = responsible_bbox * self.normalize_factor
+                denormalize_responsible_bbox_xy = denormalize_responsible_bbox[:, :2]
+                denormalize_responsible_bbox_hw = denormalize_responsible_bbox[:, 2:]
+                iou_area = tf.reduce_prod(denormalize_responsible_bbox_xy - bbox_ground_truth_xy, axis=1)
+                iou_rate = iou_area / (tf.reduce_prod(denormalize_responsible_bbox_hw, axis=1) + tf.reduce_prod(bbox_ground_truth_hw, axis=1) - iou_area)
+                predicted_bbox = tf.expand_dims(tf.nn.embedding_lookup(responsible_bbox, tf.argmax(iou_rate, axis=0)), axis=0)
                 confidence_obj_ground_truth = tf.nn.embedding_lookup(iou_rate, tf.argmax(iou_rate, axis=0))
-                confidence_obj = tf.nn.embedding_lookup(confidence, tf.argmax(iou_rate, axis=0))
+                confidence_obj = tf.nn.embedding_lookup(responsible_confidence, tf.argmax(iou_rate, axis=0))
                 location_loss = self.coord * tf.reduce_sum(
-                    tf.square(self.predicted_bbox[:, :2] - bbox_ground_truth_xy) +
-                    tf.square(tf.sqrt(self.predicted_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw))
+                    tf.square(predicted_bbox[:, :2] - bbox_ground_truth_xy/self.normalize_factor[:, :2]) +
+                    tf.square(tf.sqrt(predicted_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw/self.normalize_factor[:, 2:]))
                 )
-                confidence_loss = self.noobj * (tf.reduce_sum(tf.square(confidence)) - tf.reduce_sum(tf.square(confidence_obj))) \
+                confidence_loss = self.noobj * (tf.reduce_sum(tf.square(responsible_confidence)) - tf.reduce_sum(tf.square(confidence_obj))) \
                     + tf.reduce_sum(tf.square(confidence_obj - confidence_obj_ground_truth))
-                classifier_loss = tf.reduce_sum(tf.cast(classifier_ground_truth, tf.float32) - classifier)
+                classifier_loss = tf.reduce_sum(tf.cast(classifier_ground_truth, tf.float32) - responsible_classifier)
                 loss = location_loss + confidence_loss + classifier_loss
-                self.category_pred = tf.argmax(classifier, 1)
-                category_ground_truth = tf.argmax(classifier_ground_truth, 1)
-                for j in range(len(self.threshold)):
-                    AP_mask = tf.where(iou_rate > self.threshold[j], tf.where(tf.equal(self.category_pred, category_ground_truth), iou_rate-iou_rate+1.,
-                                       iou_rate-iou_rate), iou_rate-iou_rate)
-                    AP = tf.reduce_mean(iou_rate * AP_mask)
-                    mAP[j].append(AP)
                 total_loss.append(loss)
-            self.mAP = tf.reduce_mean(mAP)
             total_loss = tf.reduce_mean(total_loss)
+        with tf.variable_scope('inference'):
+            classifier_ = tf.concat([classifier[0, :, :]]*self.B, axis=1)
+            classifier_ = tf.reshape(classifier_, [self.B, self.S*self.S, -1])
+            confidence_ = tf.reshape(confidence[0, :, :], [self.B, self.S*self.S, 1])
+            bbox_ = tf.reshape(bbox[0, :, :], [self.B*self.S*self.S, 4])
+            
+            class_specific_confidence = classifier_ * confidence_
+            class_specific_confidence = tf.reshape(class_specific_confidence * confidence_, [self.B*self.S*self.S, self.num_classes])
+            selected_mask = []
+            for i in range(self.num_classes):
+                selected_indices = tf.image.non_max_suppression(
+                     bbox_, class_specific_confidence[:, i], self.nms_max_boxes, self.nms_iou_threshold, self.nms_score_threshold
+                 )
+                mask = tf.sparse_to_dense(selected_indices, [self.B*self.S*self.S, ], 1.0)
+                selected_mask.append(tf.expand_dims(mask, 1))
+            selected_mask = tf.concat(selected_mask, axis=1)
+            class_specific_confidence = class_specific_confidence * tf.cast(selected_mask, tf.float32)
+            classes = tf.reshape(tf.argmax(class_specific_confidence, 1), [-1, 1])
+            gather_index = tf.concat([tf.expand_dims(tf.range(self.B*self.S*self.S), 1), tf.cast(classes, tf.int32)], axis=1)
+            gathered_scores = tf.gather_nd(class_specific_confidence, gather_index)
+            gathered_bbox = tf.gather_nd(bbox_, gather_index)
+            gathered_mask = tf.cast(gathered_scores > 0, tf.float32)
+            gathered_scores = gathered_scores * gathered_mask
+            gathered_bbox = gathered_bbox * gathered_mask
+            sort_index = tf.contrib.framework.argsort(gathered_scores)
+            self.classes = tf.gather(classes, sort_index)
+            self.sorted_scores = tf.gather(gathered_scores, sort_index)
+            self.sorted_bbox = tf.gather(gathered_bbox, sort_index)
+
         with tf.variable_scope('optimizer'):
             optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=0.9)
             if self.mode == 'pretraining':
@@ -241,43 +266,22 @@ class YOLOv1:
             feed_dict = {self.images: images,
                          self.pretraining_labels: labels['pretraining_labels'],
                          self.lr: lr}
+            _, loss, acc, summaries = sess_.run([self.train_op, self.loss, accuracy, self.summary_op], feed_dict=feed_dict)
+            if writer is not None:
+                writer.add_summary(summaries, global_step=global_step)
+            return loss, acc
         else:
-            accuracy = self.mAP
             global_step = self.global_step
-            feed_dict = {self.images: images,
-                         self.labels: labels['labels'],
-                         self.bbox_ground_truth: labels['bbox'],
-                         self.lr: lr}
-        _, loss, acc, summaries = sess_.run([self.train_op, self.loss, accuracy, self.summary_op], feed_dict=feed_dict)
-        if writer is not None:
-            writer.add_summary(summaries, global_step=global_step)
-        return loss, acc
 
-    def validate_one_batch(self, images, labels, mode='detection', writer=None, sess=None):
-        self.is_training = False
-        assert mode in ['detection', 'pretraining']
-        if sess is None:
-            sess_ = self.sess
-        else:
-            sess_ = sess
-        if mode == 'pretraining':
-            accuracy = self.pretraining_accuracy
-            global_step = self.pretraining_labels
-            feed_dict = {self.images: images,
-                         self.pretraining_labels: labels['pretraining_labels'],
-                         self.lr: 0.}
-        else:
-            accuracy = self.mAP
-            global_step = self.global_step
-            feed_dict = {self.images: images,
-                         self.labels: labels['labels'],
-                         self.bbox_ground_truth: labels['bbox'],
-                         self.lr: 0.}
-        loss, acc, summaries = sess_.run([self.loss, accuracy, self.summary_op], feed_dict=feed_dict)
-        if writer is not None:
-            writer.add_summary(summaries, global_step=global_step)
-        return loss, acc
-    
+            _, loss, summaries = sess_.run([self.train_op, self.loss, self.summary_op],
+                                           feed_dict={self.images: images,
+                                                      self.labels: labels['labels'],
+                                                      self.bbox_ground_truth: labels['bbox'],
+                                                      self.lr: lr})
+            if writer is not None:
+                writer.add_summary(summaries, global_step=global_step)
+            return loss
+
     def test_one_batch(self, images, labels, mode='detection', sess=None):
         self.is_training = False
         assert mode in ['detection', 'pretraining']
@@ -293,13 +297,13 @@ class YOLOv1:
                                  })
             return category, acc
         else:
-            category, bbox = sess_.run([self.category_pred, self.predicted_bbox], feed_dict={
+            category, scores, bbox = sess_.run([self.classes, self.sorted_scores, self.sorted_bbox], feed_dict={
                                      self.images: images,
                                      self.labels: labels['labels'],
                                      self.bbox_ground_truth: labels['bbox'],
                                      self.lr: 0.
                                  })
-            return category, bbox
+            return category, scores, bbox
 
     def save_weight(self, mode, path, sess=None):
         assert(mode in ['pretraining_latest', 'pretraining_best', 'detection_latest', 'detection_best'])

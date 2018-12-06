@@ -16,16 +16,20 @@ config = {
     'batch_size': 64,
     'coord': 5.0,
     'noobj': 0.5,
-    'IOU': [0.1 * i for i in range(11)]
+
+    'nms_score_threshold': 0.2,
+    'nms_max_boxes': 20,
+    'nms_iou_threshold': 0.5
 }
 
 mean = np.array([123.68, 116.779, 103.979]).reshape((1, 1, 1, 3))
-data_shape = (448, 448, 3)
+data_shape = (224, 224, 3)
 num_train = 50000
 num_test = 10000
 num_classes = 20
 epochs = 135
+keep_prob = 0.5
 weight_decay = 5e-4
 lr = 0.01
 
-testnet = net.YOLOv1(config, data_shape, num_classes, weight_decay, 'channels_last')
+testnet = net.YOLOv1(config, data_shape, num_classes, weight_decay, keep_prob, 'channels_last')
