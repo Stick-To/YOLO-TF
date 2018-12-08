@@ -34,8 +34,8 @@ class YOLOv2:
         self._define_inputs()
         self._build_graph()
         self._init_session()
-        # self._create_saver()
-        # self._create_summary()
+        self._create_saver()
+        self._create_summary()
 
         pass
 
