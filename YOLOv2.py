@@ -5,7 +5,7 @@ import tensorflow as tf
 import os
 
 
-class YOLOv1:
+class YOLOv2:
     def __init__(self, config, input_shape, num_classes, weight_decay, keep_prob, data_format):
 
         assert len(input_shape) == 3
@@ -15,41 +15,27 @@ class YOLOv1:
         self.prob = 1. - keep_prob
         assert data_format in ['channels_first', 'channels_last']
         self.data_format = data_format
-        if data_format == 'channels_last':
-            assert input_shape[0] % config['S'] == 0
-            assert input_shape[1] % config['S'] == 0
-            self.H, self.W = float(input_shape[0]), float(input_shape[1])
-        else:
-            assert input_shape[1] % config['S'] == 0
-            assert input_shape[2] % config['S'] == 0
-            self.H, self.W = float(input_shape[1]), float(input_shape[2])
         self.config = config
         assert config['mode'] in ['pretraining', 'detection']
         self.mode = config['mode']
-        self.B = config['B']
-        self.S = config['S']
         self.batch_size = config['batch_size']
         self.coord = config['coord']
         self.noobj = config['noobj']
         self.nms_score_threshold = config['nms_score_threshold']
         self.nms_max_boxes = config['nms_max_boxes']
         self.nms_iou_threshold = config['nms_iou_threshold']
-        self.grid_cell_H = self.H / config['S']
-        self.grid_cell_W = self.W / config['S']
+        self.author_boxes_priors = tf.convert_to_tensor(config['author_boxes_priors'], dtype=tf.float32)
+        self.num_priors = len(config['author_boxes_priors'])
+        self.final_units = self.num_classes + self.num_priors * 5
 
-        self.final_predictions = config['S']*config['S']*(self.B*5 + num_classes)
-        grid_cells_centroid = [[self.grid_cell_H*(i+0.5), self.grid_cell_W*(j+0.5)] for i in range(self.S) for j in range(self.S)]
-        self.grid_cells_centroid = tf.convert_to_tensor(grid_cells_centroid)
-        self.normalize_factor = tf.constant([[self.grid_cell_H, self.grid_cell_W, self.H, self.W]])
         self.pretraining_global_step = tf.get_variable(name='pretraining_global_step', initializer=tf.constant(0), trainable=False)
         self.global_step = tf.get_variable(name='global_step', initializer=tf.constant(0), trainable=False)
         self.is_training = True
-
         self._define_inputs()
         self._build_graph()
         self._init_session()
-        self._create_saver()
-        self._create_summary()
+        # self._create_saver()
+        # self._create_summary()
 
         pass
 
@@ -65,33 +51,51 @@ class YOLOv1:
     def _build_graph(self):
 
         with tf.variable_scope('feature_extractor'):
-            features = self._feature_extractor(self.images)
+            features, passthrough = self._feature_extractor(self.images)
         with tf.variable_scope('pretraining'):
+            conv = self._conv_layer(features, self.num_classes, 1, 1, 'conv1')
             axes = [1, 2] if self.data_format == 'channels_last' else [2, 3]
-            global_pool = tf.reduce_mean(features, axis=axes, name='global_pool')
-            pre_classifier = tf.layers.dense(global_pool, self.num_classes, name='pretraining_classifier')
-            pre_loss = tf.losses.softmax_cross_entropy(self.pretraining_labels, pre_classifier, reduction=tf.losses.Reduction.MEAN)
-            self.pre_category_pred = tf.argmax(pre_classifier, 1)
+            global_pool = tf.reduce_mean(conv, axis=axes, name='global_pool')
+            pre_loss = tf.losses.softmax_cross_entropy(self.pretraining_labels, global_pool, reduction=tf.losses.Reduction.MEAN)
+            self.pre_category_pred = tf.argmax(global_pool, 1)
             self.pretraining_accuracy = tf.reduce_mean(
                 tf.cast(tf.equal(self.pre_category_pred, tf.argmax(self.pretraining_labels, 1)), tf.float32), name='accuracy'
             )
         with tf.variable_scope('regressor'):
             conv1 = self._conv_layer(features, 1024, 3, 1, 'conv1')
             lrelu1 = tf.nn.leaky_relu(conv1, 0.1, 'lrelu1')
-            conv2 = self._conv_layer(lrelu1, 1024, 3, 1, 'conv2')
+            conv2 = self._conv_layer(lrelu1, self.final_units, 1, 1, 'conv2')
             lrelu2 = tf.nn.leaky_relu(conv2, 0.1, 'lrelu2')
-            flatten = tf.layers.flatten(lrelu2, name='flatten')
-            fc1 = tf.layers.dense(flatten, 4096, name='fc1')
-            lrelu_fc1 = tf.nn.leaky_relu(fc1, 0.1, name='lrelu_fc1')
-            dropout = self._dropout(lrelu_fc1, name='dropout')
-            final_dense = tf.layers.dense(dropout, self.final_predictions, name='final_dense')
-            predictions = tf.reshape(final_dense, [self.batch_size, self.S*self.S, self.B*5+self.num_classes], name='predictions')
-            classifier = predictions[:, :, :self.num_classes]
-            confidence = predictions[:, :, self.num_classes:self.num_classes+self.B]
-            bbox = predictions[:, :, self.num_classes+self.B:]
+            conv3 = self._conv_layer(lrelu2, 1024, 3, 1, 'conv3')
+            lrelu3 = tf.nn.leaky_relu(conv3, 0.1, 'lrelu3')
+            conv4 = self._conv_layer(lrelu3, self.final_units, 1, 1, 'conv4')
+            lrelu4 = tf.nn.leaky_relu(conv4, 0.1, 'lrelu4')
+            conv5 = self._conv_layer(lrelu4, 1024, 3, 1, 'conv5')
+            lrelu5 = tf.nn.leaky_relu(conv5, 0.1, 'lrelu5')
+            axes = 3 if self.data_format == 'channels_last' else 1
+            lrelu5 = tf.concat([passthrough, lrelu5], axis=axes)
+            predictions = self._conv_layer(lrelu5, self.final_units, 1, 1, 'predictions')
+            downsampling_rate = float(self.input_shape[1] / int(predictions.get_shape()[2]))
+            if self.data_format == 'channels_first':
+                predictions = tf.transpose(predictions, [0, 2, 3, 1])
+            grid_cells_centroid_x = [downsampling_rate*i for i in range(predictions.get_shape()[1])]
+            grid_cells_centroid_y = [downsampling_rate*j for j in range(predictions.get_shape()[2])]
+            grid_cells_centroid_x, grid_cells_centroid_y = tf.meshgrid(grid_cells_centroid_x, grid_cells_centroid_y)
+            grid_cells_centroid_x = tf.reshape(grid_cells_centroid_x, [-1, 1])
+            grid_cells_centroid_y = tf.reshape(grid_cells_centroid_y, [-1, 1])
+            grid_cells_centroid = tf.concat([grid_cells_centroid_x, grid_cells_centroid_y], axis=1)
+            classifier = predictions[:, :, :, :self.num_classes]
+            bbox_xy = tf.nn.sigmoid(predictions[:, :, :, self.num_classes:self.num_classes+self.num_priors*2])
+            bbox_hw = predictions[:, :, :, self.num_classes+self.num_priors*2:self.num_classes+self.num_priors*4]
+            confidence = tf.nn.sigmoid(predictions[:, :, :, self.num_classes+self.num_priors*4:])
         with tf.variable_scope('train'):
             total_loss = []
             for i in range(self.batch_size):
+                classifier_i = tf.reshape(tf.nn.embedding_lookup(classifier, i), [-1, self.num_classes])
+                bbox_xy_i = tf.reshape(tf.nn.embedding_lookup(bbox_xy, i), [-1, self.num_priors, 2])
+                bbox_hw_i = tf.reshape(tf.nn.embedding_lookup(bbox_hw, i), [-1, self.num_priors, 2])
+                confidence_i = tf.reshape(tf.nn.embedding_lookup(confidence, i), [-1, self.num_priors, 1])
+
                 bbox_ground_truth_xy = self.bbox_ground_truth[i, :, :2]
                 bbox_ground_truth_hw = self.bbox_ground_truth[i, :, 2:]
                 slice_index = tf.argmin(bbox_ground_truth_xy, axis=0)
@@ -99,62 +103,65 @@ class YOLOv1:
                 bbox_ground_truth_hw = tf.nn.embedding_lookup(bbox_ground_truth_hw, tf.range(slice_index[0]))
                 classifier_ground_truth = tf.nn.embedding_lookup(self.labels[i, :, :], tf.range(slice_index[0]))
 
-                dist_truth_cells = -2 * tf.matmul(bbox_ground_truth_xy, self.grid_cells_centroid, transpose_b=True) \
+                dist_truth_cells = -2 * tf.matmul(bbox_ground_truth_xy, grid_cells_centroid, transpose_b=True) \
                     + tf.expand_dims(tf.reduce_sum(bbox_ground_truth_xy**2, axis=1), axis=1) \
-                    + tf.expand_dims(tf.reduce_sum(self.grid_cells_centroid**2, axis=1), axis=0)
+                    + tf.expand_dims(tf.reduce_sum(grid_cells_centroid**2, axis=1), axis=0)
                 responsible_grid_cell = tf.argmin(dist_truth_cells, axis=1)
 
-                responsible_classifier = tf.nn.embedding_lookup(classifier[i, :, :], responsible_grid_cell)
-                responsible_confidence = tf.nn.embedding_lookup(confidence[i, :, :], responsible_grid_cell)
-                responsible_bbox = tf.nn.embedding_lookup(bbox[i, :, :], responsible_grid_cell)
-                responsible_bbox = tf.reshape(responsible_bbox, [self.B, 4])
+                responsible_classifier = tf.nn.embedding_lookup(classifier_i, responsible_grid_cell)
+                responsible_confidence = tf.nn.embedding_lookup(confidence_i, responsible_grid_cell)
+                responsible_bbox_xy = tf.nn.embedding_lookup(bbox_xy_i, responsible_grid_cell)
+                responsible_bbox_hw = tf.nn.embedding_lookup(bbox_hw_i, responsible_grid_cell)
+                responsible_grid_cells_centroid = tf.expand_dims(tf.nn.embedding_lookup(grid_cells_centroid, responsible_grid_cell), 1)
 
-                denormalize_responsible_bbox = responsible_bbox * self.normalize_factor
-                denormalize_responsible_bbox_xy = denormalize_responsible_bbox[:, :2]
-                denormalize_responsible_bbox_hw = denormalize_responsible_bbox[:, 2:]
-                iou_area = tf.reduce_prod(denormalize_responsible_bbox_xy - bbox_ground_truth_xy, axis=1)
-                iou_rate = iou_area / (tf.reduce_prod(denormalize_responsible_bbox_hw, axis=1) + tf.reduce_prod(bbox_ground_truth_hw, axis=1) - iou_area)
-                predicted_bbox = tf.nn.embedding_lookup(responsible_bbox, [tf.argmax(iou_rate, axis=0)])
+                denormalize_responsible_bbox_xy = (responsible_bbox_xy - 0.5) * downsampling_rate + responsible_grid_cells_centroid
+                denormalize_responsible_bbox_hw = tf.exp(responsible_bbox_hw) * self.author_boxes_priors
+                iou_area = tf.abs(tf.reduce_prod(denormalize_responsible_bbox_xy - bbox_ground_truth_xy, axis=2))
+                iou_rate = iou_area / (tf.abs(tf.reduce_prod(denormalize_responsible_bbox_hw, axis=2)) + tf.expand_dims(tf.abs(tf.reduce_prod(bbox_ground_truth_hw, axis=1)), 1) - iou_area)
+
+                selected_bbox_index = tf.concat([tf.expand_dims(tf.cast(tf.range(tf.shape(iou_rate)[0]), tf.int64), 1), tf.expand_dims(tf.argmax(iou_rate, axis=1), 1)], 1)
+                predicted_bbox_xy = tf.gather_nd(responsible_bbox_xy, selected_bbox_index)
+                predicted_bbox_hw = tf.gather_nd(responsible_bbox_hw, selected_bbox_index)
+                predicted_bbox_priors = tf.nn.embedding_lookup(self.author_boxes_priors, tf.argmax(iou_rate, axis=1))
+                normalized_bbox_ground_truth_xy = (bbox_ground_truth_xy / downsampling_rate) - tf.math.floor(bbox_ground_truth_xy / downsampling_rate)
                 location_loss = self.coord * tf.reduce_sum(
-                    tf.square(predicted_bbox[:, :2] - bbox_ground_truth_xy/self.normalize_factor[:, :2]) +
-                    tf.square(tf.sqrt(predicted_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw/self.normalize_factor[:, 2:]))
+                    tf.square(predicted_bbox_xy - normalized_bbox_ground_truth_xy) +
+                    tf.square(tf.sqrt(predicted_bbox_hw) - tf.sqrt(tf.log(bbox_ground_truth_hw/predicted_bbox_priors)))
                 )
-                confidence_loss = tf.reduce_sum(tf.square(responsible_confidence - iou_rate)) \
-                    + self.noobj * tf.reduce_sum(tf.square(confidence[i, :, :] - 0.)) - self.noobj * self.noobj * tf.reduce_sum(tf.square(responsible_confidence - 0.))
+                confidence_loss = tf.reduce_sum(tf.square(responsible_confidence - iou_rate))\
+                    + self.noobj * tf.reduce_sum(tf.square(confidence_i - 0.)) - self.noobj * self.noobj * tf.reduce_sum(tf.square(responsible_confidence - 0.))
                 classifier_loss = tf.reduce_sum(tf.cast(classifier_ground_truth, tf.float32) - responsible_classifier)
                 loss = location_loss + confidence_loss + classifier_loss
                 total_loss.append(loss)
             total_loss = tf.reduce_mean(total_loss)
-        with tf.variable_scope('inference'):
-            classifier_ = tf.concat([classifier[0, :, :]]*self.B, axis=1)
-            classifier_ = tf.reshape(classifier_, [self.B, self.S*self.S, -1])
-            confidence_ = tf.reshape(confidence[0, :, :], [self.B, self.S*self.S, 1])
-            bbox_ = tf.reshape(bbox[0, :, :], [self.B*self.S*self.S, 4]) * self.normalize_factor
-            bbox_ = tf.concat([tf.expand_dims(bbox_[:, 1]-bbox_[:, 2]/2, 1), tf.expand_dims(bbox_[:, 0]-bbox_[:, 2]/2, 1),
-                               tf.expand_dims(bbox_[:, 1]+bbox_[:, 2]/2, 1), tf.expand_dims(bbox_[:, 0]-bbox_[:, 2]/2, 1)], axis=1)
-            bbox__ = tf.reshape(bbox[0, :, :], [self.B*self.S*self.S, 4])
-            class_specific_confidence = classifier_ * confidence_
-            class_specific_confidence = tf.reshape(class_specific_confidence * confidence_, [self.B*self.S*self.S, self.num_classes])
-            selected_mask = []
-            for i in range(self.num_classes):
-                selected_indices = tf.image.non_max_suppression(
-                     bbox_, class_specific_confidence[:, i], self.nms_max_boxes, self.nms_iou_threshold, self.nms_score_threshold
-                 )
-                mask = tf.sparse_to_dense(selected_indices, [self.B*self.S*self.S, ], 1.0)
-                selected_mask.append(tf.expand_dims(mask, 1))
-            selected_mask = tf.concat(selected_mask, axis=1)
-            class_specific_confidence = class_specific_confidence * tf.cast(selected_mask, tf.float32)
-            classes = tf.reshape(tf.argmax(class_specific_confidence, 1), [-1, 1])
-            gather_index = tf.concat([tf.expand_dims(tf.range(self.B*self.S*self.S), 1), tf.cast(classes, tf.int32)], axis=1)
-            gathered_scores = tf.gather_nd(class_specific_confidence, gather_index)
-            gathered_bbox = tf.gather_nd(bbox__, gather_index)
-            gathered_mask = gathered_scores > 0
-            gathered_scores = tf.boolean_mask(gathered_scores, gathered_mask)
-            gathered_bbox = tf.boolean_mask(gathered_bbox, gathered_mask)
-            sort_index = tf.contrib.framework.argsort(gathered_scores)
-            self.classes = tf.gather(classes, sort_index)
-            self.sorted_scores = tf.gather(gathered_scores, sort_index)
-            self.sorted_bbox = tf.gather(gathered_bbox, sort_index)
+        # with tf.variable_scope('inference'):
+        #     classifier_ = classifier[0, :, :, :]
+        #     confidence_ = confidence[0, :, :, :]
+        #     bbox_hw_ = bbox_hw[0:, :, :, :]
+        #     bbox_xy_ = bbox_xy[0:, :, :, :]
+        #
+        #     class_specific_confidence = classifier_ * confidence_
+        #     class_specific_confidence = tf.reshape(class_specific_confidence * confidence_, [self.B*self.S*self.S, self.num_classes])
+        #     selected_mask = []
+        #     for i in range(self.num_classes):
+        #         selected_indices = tf.image.non_max_suppression(
+        #              bbox_, class_specific_confidence[:, i], self.nms_max_boxes, self.nms_iou_threshold, self.nms_score_threshold
+        #          )
+        #         mask = tf.sparse_to_dense(selected_indices, [self.B*self.S*self.S, ], 1.0)
+        #         selected_mask.append(tf.expand_dims(mask, 1))
+        #     selected_mask = tf.concat(selected_mask, axis=1)
+        #     class_specific_confidence = class_specific_confidence * tf.cast(selected_mask, tf.float32)
+        #     classes = tf.reshape(tf.argmax(class_specific_confidence, 1), [-1, 1])
+        #     gather_index = tf.concat([tf.expand_dims(tf.range(self.B*self.S*self.S), 1), tf.cast(classes, tf.int32)], axis=1)
+        #     gathered_scores = tf.gather_nd(class_specific_confidence, gather_index)
+        #     gathered_bbox = tf.gather_nd(bbox_, gather_index)
+        #     gathered_mask = gathered_scores > 0
+        #     gathered_scores = tf.boolean_mask(gathered_scores, gathered_mask)
+        #     gathered_bbox = tf.boolean_mask(gathered_bbox, gathered_mask)
+        #     sort_index = tf.contrib.framework.argsort(gathered_scores)
+        #     self.classes = tf.gather(classes, sort_index)
+        #     self.sorted_scores = tf.gather(gathered_scores, sort_index)
+        #     self.sorted_bbox = tf.gather(gathered_bbox, sort_index)
 
         with tf.variable_scope('optimizer'):
             optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=0.9)
@@ -198,59 +205,55 @@ class YOLOv1:
                 self.summary_op = tf.summary.merge_all()
 
     def _feature_extractor(self, image):
-        conv1 = self._conv_layer(image, 64, 7, 2, 'conv1')
+        conv1 = self._conv_layer(image, 32, 3, 1, 'conv1')
         lrelu1 = tf.nn.leaky_relu(conv1, 0.1, 'lrelu1')
         pool1 = self._max_pooling(lrelu1, 2, 2, 'pool1')
 
-        conv2 = self._conv_layer(pool1, 192, 3, 1, 'conv2')
+        conv2 = self._conv_layer(pool1, 64, 3, 1, 'conv2')
         lrelu2 = tf.nn.leaky_relu(conv2, 0.1, 'lrelu2')
         pool2 = self._max_pooling(lrelu2, 2, 2, 'pool2')
 
-        conv3 = self._conv_layer(pool2, 128, 1, 1, 'conv3')
+        conv3 = self._conv_layer(pool2, 128, 3, 1, 'conv3')
         lrelu3 = tf.nn.leaky_relu(conv3, 0.1, 'lrelu3')
-        conv4 = self._conv_layer(lrelu3, 256, 3, 1, 'conv4')
+        conv4 = self._conv_layer(lrelu3, 64, 1, 1, 'conv4')
         lrelu4 = tf.nn.leaky_relu(conv4, 0.1, 'lrelu4')
-        conv5 = self._conv_layer(lrelu4, 256, 1, 1, 'conv5')
+        conv5 = self._conv_layer(lrelu4, 128, 3, 1, 'conv5')
         lrelu5 = tf.nn.leaky_relu(conv5, 0.1, 'lrelu5')
-        conv6 = self._conv_layer(lrelu5, 512, 3, 1, 'conv6')
-        lrelu6 = tf.nn.leaky_relu(conv6, 0.1, 'lrelu6')
-        pool3 = self._max_pooling(lrelu6, 2, 2, 'pool3')
+        pool3 = self._max_pooling(lrelu5, 2, 2, 'pool3')
 
-        conv7 = self._conv_layer(pool3, 256, 1, 1, 'conv7')
+        conv6 = self._conv_layer(pool3, 256, 3, 1, 'conv6')
+        lrelu6 = tf.nn.leaky_relu(conv6, 0.1, 'lrelu6')
+        conv7 = self._conv_layer(lrelu6, 128, 1, 1, 'conv7')
         lrelu7 = tf.nn.leaky_relu(conv7, 0.1, 'lrelu7')
-        conv8 = self._conv_layer(lrelu7, 512, 1, 1, 'conv8')
+        conv8 = self._conv_layer(lrelu7, 256, 3, 1, 'conv8')
         lrelu8 = tf.nn.leaky_relu(conv8, 0.1, 'lrelu8')
-        conv9 = self._conv_layer(lrelu8, 256, 1, 1, 'conv9')
+        pool4 = self._max_pooling(lrelu8, 2, 2, 'pool4')
+
+        conv9 = self._conv_layer(pool4, 512, 3, 1, 'conv9')
         lrelu9 = tf.nn.leaky_relu(conv9, 0.1, 'lrelu9')
-        conv10 = self._conv_layer(lrelu9, 512, 1, 1, 'conv10')
+        conv10 = self._conv_layer(lrelu9, 256, 1, 1, 'conv10')
         lrelu10 = tf.nn.leaky_relu(conv10, 0.1, 'lrelu10')
-        conv11 = self._conv_layer(lrelu10, 256, 1, 1, 'conv11')
+        conv11 = self._conv_layer(lrelu10, 512, 3, 1, 'conv11')
         lrelu11 = tf.nn.leaky_relu(conv11, 0.1, 'lrelu11')
-        conv12 = self._conv_layer(lrelu11, 512, 1, 1, 'conv12')
+        pool4 = self._max_pooling(lrelu11, 2, 2, 'pool4')
+        conv12 = self._conv_layer(pool4, 256, 1, 1, 'conv12')
         lrelu12 = tf.nn.leaky_relu(conv12, 0.1, 'lrelu12')
-        conv13 = self._conv_layer(lrelu12, 256, 1, 1, 'conv13')
+        conv13 = self._conv_layer(lrelu12, 512, 3, 1, 'conv13')
         lrelu13 = tf.nn.leaky_relu(conv13, 0.1, 'lrelu13')
-        conv14 = self._conv_layer(lrelu13, 512, 1, 1, 'conv14')
+        pool5 = self._max_pooling(lrelu13, 2, 2, 'pool5')
+
+        conv14 = self._conv_layer(pool5, 1024, 3, 1, 'conv14')
         lrelu14 = tf.nn.leaky_relu(conv14, 0.1, 'lrelu14')
         conv15 = self._conv_layer(lrelu14, 512, 1, 1, 'conv15')
         lrelu15 = tf.nn.leaky_relu(conv15, 0.1, 'lrelu15')
         conv16 = self._conv_layer(lrelu15, 1024, 3, 1, 'conv16')
         lrelu16 = tf.nn.leaky_relu(conv16, 0.1, 'lrelu16')
         pool4 = self._max_pooling(lrelu16, 2, 2, 'pool4')
-
         conv17 = self._conv_layer(pool4, 512, 1, 1, 'conv17')
         lrelu17 = tf.nn.leaky_relu(conv17, 0.1, 'lrelu17')
         conv18 = self._conv_layer(lrelu17, 1024, 3, 1, 'conv18')
         lrelu18 = tf.nn.leaky_relu(conv18, 0.1, 'lrelu18')
-        conv19 = self._conv_layer(lrelu18, 512, 1, 1, 'conv19')
-        lrelu19 = tf.nn.leaky_relu(conv19, 0.1, 'lrelu19')
-        conv20 = self._conv_layer(lrelu19, 1024, 3, 1, 'conv20')
-        lrelu20 = tf.nn.leaky_relu(conv20, 0.1, 'lrelu20')
-        conv21 = self._conv_layer(lrelu20, 1024, 3, 1, 'conv21')
-        lrelu21 = tf.nn.leaky_relu(conv21, 0.1, 'lrelu21')
-        conv22 = self._conv_layer(lrelu21, 1024, 3, 2, 'conv22')
-        lrelu22 = tf.nn.leaky_relu(conv22, 0.1, 'lrelu22')
-        return lrelu22
+        return lrelu18, lrelu17
 
     def train_one_batch(self, images, labels, lr, mode='detection', writer=None, sess=None):
         self.is_training = True
@@ -370,7 +373,8 @@ class YOLOv1:
             data_format=self.data_format,
             kernel_initializer=tf.contrib.layers.variance_scaling_initializer()
         )
-        return conv
+        bn = self._bn(conv)
+        return bn
 
     def _max_pooling(self, bottom, pool_size, strides, name):
         return tf.layers.max_pooling2d(
