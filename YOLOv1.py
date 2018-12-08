@@ -103,6 +103,11 @@ class YOLOv1:
                     + tf.expand_dims(tf.reduce_sum(bbox_ground_truth_xy**2, axis=1), axis=1) \
                     + tf.expand_dims(tf.reduce_sum(self.grid_cells_centroid**2, axis=1), axis=0)
                 responsible_grid_cell = tf.argmin(dist_truth_cells, axis=1)
+                responsible_cells_ = tf.reshape(responsible_grid_cell, [-1, 1])
+                sparse_mask = tf.sparse.SparseTensor(tf.concat([responsible_cells_, tf.zeros_like(responsible_cells_)], axis=1),
+                                                     tf.squeeze(tf.ones_like(responsible_cells_)), dense_shape=[self.S*self.S, 1])
+                mask = tf.reshape(tf.sparse.to_dense(sparse_mask) < 1, [-1, ])
+                noobj_confidence = tf.boolean_mask(confidence[i, :, :], mask)
 
                 responsible_classifier = tf.nn.embedding_lookup(classifier[i, :, :], responsible_grid_cell)
                 responsible_confidence = tf.nn.embedding_lookup(confidence[i, :, :], responsible_grid_cell)
@@ -120,7 +125,7 @@ class YOLOv1:
                     tf.square(tf.sqrt(predicted_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw/self.normalize_factor[:, 2:]))
                 )
                 confidence_loss = tf.reduce_sum(tf.square(responsible_confidence - iou_rate)) \
-                    + self.noobj * tf.reduce_sum(tf.square(confidence[i, :, :] - 0.)) - self.noobj * self.noobj * tf.reduce_sum(tf.square(responsible_confidence - 0.))
+                    + self.noobj * tf.reduce_sum(tf.square(noobj_confidence))
                 classifier_loss = tf.reduce_sum(tf.cast(classifier_ground_truth, tf.float32) - responsible_classifier)
                 loss = location_loss + confidence_loss + classifier_loss
                 total_loss.append(loss)
@@ -134,14 +139,17 @@ class YOLOv1:
                                tf.expand_dims(bbox_[:, 1]+bbox_[:, 2]/2, 1), tf.expand_dims(bbox_[:, 0]-bbox_[:, 2]/2, 1)], axis=1)
             bbox__ = tf.reshape(bbox[0, :, :], [self.B*self.S*self.S, 4])
             class_specific_confidence = classifier_ * confidence_
-            class_specific_confidence = tf.reshape(class_specific_confidence * confidence_, [self.B*self.S*self.S, self.num_classes])
+            class_specific_confidence = tf.reshape(class_specific_confidence*confidence_, [self.B*self.S*self.S, self.num_classes])
             selected_mask = []
             for i in range(self.num_classes):
                 selected_indices = tf.image.non_max_suppression(
                      bbox_, class_specific_confidence[:, i], self.nms_max_boxes, self.nms_iou_threshold, self.nms_score_threshold
                  )
-                mask = tf.sparse_to_dense(selected_indices, [self.B*self.S*self.S, ], 1.0)
-                selected_mask.append(tf.expand_dims(mask, 1))
+                selected_indices = tf.cast(tf.reshape(selected_indices, [-1, 1]), tf.int64)
+                sparse_mask_ = tf.sparse.SparseTensor(tf.concat([selected_indices, tf.zeros_like(selected_indices)], axis=1),
+                                                      tf.squeeze(tf.ones_like(selected_indices)), dense_shape=[self.B*self.S*self.S, 1])
+                mask_ = tf.sparse.to_dense(sparse_mask_)
+                selected_mask.append(mask_)
             selected_mask = tf.concat(selected_mask, axis=1)
             class_specific_confidence = class_specific_confidence * tf.cast(selected_mask, tf.float32)
             classes = tf.reshape(tf.argmax(class_specific_confidence, 1), [-1, 1])
@@ -261,7 +269,7 @@ class YOLOv1:
             sess_ = sess
         if mode == 'pretraining':
             accuracy = self.pretraining_accuracy
-            global_step = self.pretraining_labels
+            global_step = self.pretraining_global_step
             feed_dict = {self.images: images,
                          self.pretraining_labels: labels['pretraining_labels'],
                          self.lr: lr}
@@ -279,6 +287,22 @@ class YOLOv1:
             if writer is not None:
                 writer.add_summary(summaries, global_step=global_step)
             return loss
+
+    def valiate_one_batch(self, images, labels, mode='pretraining', sess=None):
+        self.is_training = False
+        if mode != 'pretraining':
+            raise Exception('No validate for detection!')
+        if sess is None:
+            sess_ = self.sess
+        else:
+            sess_ = sess
+        if mode == 'pretraining':
+            accuracy = self.pretraining_accuracy
+            feed_dict = {self.images: images,
+                         self.pretraining_labels: labels['pretraining_labels'],
+                         self.lr: 0.}
+            loss, acc = sess_.run([self.loss, accuracy], feed_dict=feed_dict)
+            return loss, acc
 
     def test_one_batch(self, images, labels, mode='detection', sess=None):
         self.is_training = False

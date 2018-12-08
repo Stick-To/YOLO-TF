@@ -10,7 +10,7 @@ else:
     print('Found GPU Device Failed!')
 
 config = {
-    'mode': 'detection',     # 'detection',
+    'mode': 'detection',     # 'pretraining', 'detection'
     'B': 2,
     'S': 7,
     'batch_size': 64,
@@ -23,7 +23,7 @@ config = {
 }
 
 mean = np.array([123.68, 116.779, 103.979]).reshape((1, 1, 1, 3))
-data_shape = (112, 112, 3)
+data_shape = (448, 448, 3)
 num_train = 50000
 num_test = 10000
 num_classes = 20
