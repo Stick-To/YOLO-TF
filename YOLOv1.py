@@ -95,9 +95,9 @@ class YOLOv1:
                 bbox_ground_truth_xy = self.bbox_ground_truth[i, :, :2]
                 bbox_ground_truth_hw = self.bbox_ground_truth[i, :, 2:]
                 slice_index = tf.argmin(bbox_ground_truth_xy, axis=0)
-                bbox_ground_truth_xy = tf.nn.embedding_lookup(bbox_ground_truth_xy, tf.range(slice_index[0]))
-                bbox_ground_truth_hw = tf.nn.embedding_lookup(bbox_ground_truth_hw, tf.range(slice_index[0]))
-                classifier_ground_truth = tf.nn.embedding_lookup(self.labels[i, :, :], tf.range(slice_index[0]))
+                bbox_ground_truth_xy = tf.gather(bbox_ground_truth_xy, tf.range(slice_index[0]))
+                bbox_ground_truth_hw = tf.gather(bbox_ground_truth_hw, tf.range(slice_index[0]))
+                classifier_ground_truth = tf.gather(self.labels[i, :, :], tf.range(slice_index[0]))
 
                 dist_truth_cells = -2 * tf.matmul(bbox_ground_truth_xy, self.grid_cells_centroid, transpose_b=True) \
                     + tf.expand_dims(tf.reduce_sum(bbox_ground_truth_xy**2, axis=1), axis=1) \
@@ -109,9 +109,9 @@ class YOLOv1:
                 mask = tf.reshape(tf.sparse.to_dense(sparse_mask) < 1, [-1, ])
                 noobj_confidence = tf.boolean_mask(confidence[i, :, :], mask)
 
-                responsible_classifier = tf.nn.embedding_lookup(classifier[i, :, :], responsible_grid_cell)
-                responsible_confidence = tf.nn.embedding_lookup(confidence[i, :, :], responsible_grid_cell)
-                responsible_bbox = tf.nn.embedding_lookup(bbox[i, :, :], responsible_grid_cell)
+                responsible_classifier = tf.gather(classifier[i, :, :], responsible_grid_cell)
+                responsible_confidence = tf.gather(confidence[i, :, :], responsible_grid_cell)
+                responsible_bbox = tf.gather(bbox[i, :, :], responsible_grid_cell)
                 responsible_bbox = tf.reshape(responsible_bbox, [self.B, 4])
 
                 denormalize_responsible_bbox = responsible_bbox * self.normalize_factor
@@ -119,7 +119,7 @@ class YOLOv1:
                 denormalize_responsible_bbox_hw = denormalize_responsible_bbox[:, 2:]
                 iou_area = tf.reduce_prod(denormalize_responsible_bbox_xy - bbox_ground_truth_xy, axis=1)
                 iou_rate = iou_area / (tf.reduce_prod(denormalize_responsible_bbox_hw, axis=1) + tf.reduce_prod(bbox_ground_truth_hw, axis=1) - iou_area)
-                predicted_bbox = tf.nn.embedding_lookup(responsible_bbox, [tf.argmax(iou_rate, axis=0)])
+                predicted_bbox = tf.gather(responsible_bbox, [tf.argmax(iou_rate, axis=0)])
                 location_loss = self.coord * tf.reduce_sum(
                     tf.square(predicted_bbox[:, :2] - bbox_ground_truth_xy/self.normalize_factor[:, :2]) +
                     tf.square(tf.sqrt(predicted_bbox[:, 2:]) - tf.sqrt(bbox_ground_truth_hw/self.normalize_factor[:, 2:]))
@@ -137,7 +137,6 @@ class YOLOv1:
             bbox_ = tf.reshape(bbox[0, :, :], [self.B*self.S*self.S, 4]) * self.normalize_factor
             bbox_ = tf.concat([tf.expand_dims(bbox_[:, 1]-bbox_[:, 2]/2, 1), tf.expand_dims(bbox_[:, 0]-bbox_[:, 2]/2, 1),
                                tf.expand_dims(bbox_[:, 1]+bbox_[:, 2]/2, 1), tf.expand_dims(bbox_[:, 0]-bbox_[:, 2]/2, 1)], axis=1)
-            bbox__ = tf.reshape(bbox[0, :, :], [self.B*self.S*self.S, 4])
             class_specific_confidence = classifier_ * confidence_
             class_specific_confidence = tf.reshape(class_specific_confidence*confidence_, [self.B*self.S*self.S, self.num_classes])
             selected_mask = []
@@ -155,7 +154,7 @@ class YOLOv1:
             classes = tf.reshape(tf.argmax(class_specific_confidence, 1), [-1, 1])
             gather_index = tf.concat([tf.expand_dims(tf.range(self.B*self.S*self.S), 1), tf.cast(classes, tf.int32)], axis=1)
             gathered_scores = tf.gather_nd(class_specific_confidence, gather_index)
-            gathered_bbox = tf.gather_nd(bbox__, gather_index)
+            gathered_bbox = tf.gather_nd(bbox_, gather_index)
             gathered_mask = gathered_scores > 0
             gathered_scores = tf.boolean_mask(gathered_scores, gathered_mask)
             gathered_bbox = tf.boolean_mask(gathered_bbox, gathered_mask)

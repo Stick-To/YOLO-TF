@@ -86,24 +86,24 @@ class YOLOv2:
             cells_centroid_y = tf.reshape(cells_centroid_y, [-1, 1])
             cells_centroid = tf.concat([cells_centroid_x, cells_centroid_y], axis=1)
 
-            classifier = tf.nn.softmax(predictions[..., :self.num_classes])
+            classifier = predictions[..., :self.num_classes]
             bbox_xy = tf.nn.sigmoid(predictions[..., self.num_classes:self.num_classes+self.num_priors*2])
             bbox_hw = predictions[..., self.num_classes+self.num_priors*2:self.num_classes+self.num_priors*4]
             confidence = tf.nn.sigmoid(predictions[..., self.num_classes+self.num_priors*4:])
         with tf.variable_scope('train'):
             total_loss = []
             for i in range(self.batch_size):
-                classifier_i = tf.reshape(tf.nn.embedding_lookup(classifier, i), [-1, self.num_classes])
-                bbox_xy_i = tf.reshape(tf.nn.embedding_lookup(bbox_xy, i), [-1, self.num_priors, 2])
-                bbox_hw_i = tf.reshape(tf.nn.embedding_lookup(bbox_hw, i), [-1, self.num_priors, 2])
-                confidence_i = tf.reshape(tf.nn.embedding_lookup(confidence, i), [-1, self.num_priors, 1])
+                classifier_i = tf.reshape(tf.gather(classifier, i), [-1, self.num_classes])
+                bbox_xy_i = tf.reshape(tf.gather(bbox_xy, i), [-1, self.num_priors, 2])
+                bbox_hw_i = tf.reshape(tf.gather(bbox_hw, i), [-1, self.num_priors, 2])
+                confidence_i = tf.reshape(tf.gather(confidence, i), [-1, self.num_priors, 1])
 
                 bbox_truth_xy = self.bbox_ground_truth[i, :, :2]
                 bbox_truth_hw = self.bbox_ground_truth[i, :, 2:]
                 slice_index = tf.argmin(bbox_truth_xy, axis=0)
-                bbox_truth_xy = tf.nn.embedding_lookup(bbox_truth_xy, tf.range(slice_index[0]))
-                bbox_truth_hw = tf.nn.embedding_lookup(bbox_truth_hw, tf.range(slice_index[0]))
-                classifier_truth = tf.nn.embedding_lookup(self.labels[i, :, :], tf.range(slice_index[0]))
+                bbox_truth_xy = tf.gather(bbox_truth_xy, tf.range(slice_index[0]))
+                bbox_truth_hw = tf.gather(bbox_truth_hw, tf.range(slice_index[0]))
+                classifier_truth = tf.gather(self.labels[i, :, :], tf.range(slice_index[0]))
 
                 dist_truth_cells = -2 * tf.matmul(bbox_truth_xy, cells_centroid, transpose_b=True) \
                     + tf.expand_dims(tf.reduce_sum(bbox_truth_xy**2, axis=1), axis=1) \
@@ -130,7 +130,7 @@ class YOLOv2:
                 selected_bbox_index = tf.concat([tf.expand_dims(tf.cast(tf.range(tf.shape(iou_rate)[0]), tf.int64), 1), tf.expand_dims(tf.argmax(iou_rate, axis=1), 1)], 1)
                 predicted_bbox_xy = tf.gather_nd(responsible_bboxes_xy, selected_bbox_index)
                 predicted_bbox_hw = tf.gather_nd(responsible_bboxes_hw, selected_bbox_index)
-                predicted_bbox_priors = tf.nn.embedding_lookup(self.author_boxes_priors, tf.argmax(iou_rate, axis=1))
+                predicted_bbox_priors = tf.gather(self.author_boxes_priors, tf.argmax(iou_rate, axis=1))
                 norm_bbox_truth_xy = (bbox_truth_xy / downsampling_rate) - tf.math.floor(bbox_truth_xy / downsampling_rate)
                 location_loss = self.coord * tf.reduce_sum(
                     tf.square(predicted_bbox_xy - norm_bbox_truth_xy) +
@@ -152,13 +152,11 @@ class YOLOv2:
             bbox_hw_ = tf.reshape(bbox_hw[0, :, :, :], [-1, self.num_priors, 2])
             denorm_bbox_xy_ = (bbox_xy_ - 0.5) * downsampling_rate + cells_centroid_
             denorm_bbox_hw_ = tf.exp(bbox_hw_) * self.author_boxes_priors
-            bbox_ = tf.concat([bbox_xy_, bbox_hw_], axis=2)
             denorm_bbox_ = tf.expand_dims(tf.concat([denorm_bbox_xy_, denorm_bbox_hw_], axis=2), 0)
             denorm_bbox_ = tf.concat([denorm_bbox_[..., 1]-denorm_bbox_[..., 2]/2, denorm_bbox_[..., 0]-denorm_bbox_[..., 2]/2,
                                       denorm_bbox_[..., 1]+denorm_bbox_[..., 2]/2, denorm_bbox_[..., 0]-denorm_bbox_[..., 2]/2], axis=2)
             confidence_ = tf.reshape(confidence_, [-1, 1])
             classifier_ = tf.reshape(classifier_, [-1, self.num_classes])
-            bbox_ = tf.reshape(bbox_, [-1, 4])
             denorm_bbox_ = tf.reshape(denorm_bbox_, [-1, 4])
             class_specific_confidence = classifier_ * confidence_
             selected_mask = []
@@ -177,7 +175,7 @@ class YOLOv2:
             classes = tf.reshape(tf.argmax(class_specific_confidence, 1), [-1, 1])
             gather_index = tf.concat([tf.expand_dims(tf.range(self.num_priors*predictions.get_shape()[1]*predictions.get_shape()[2]), 1), tf.cast(classes, tf.int32)], axis=1)
             gathered_scores = tf.gather_nd(class_specific_confidence, gather_index)
-            gathered_bbox = tf.gather_nd(bbox_, gather_index)
+            gathered_bbox = tf.gather_nd(denorm_bbox_, gather_index)
             gathered_mask = gathered_scores > 0
             gathered_scores = tf.boolean_mask(gathered_scores, gathered_mask)
             gathered_bbox = tf.boolean_mask(gathered_bbox, gathered_mask)
