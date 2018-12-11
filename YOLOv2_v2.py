@@ -1,8 +1,8 @@
-# Another way of implementation
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import tensorflow as tf
+import warnings
 import os
 
 
@@ -42,8 +42,8 @@ class YOLOv2:
         self._define_inputs()
         self._build_graph()
         self._init_session()
-        # self._create_saver()
-        # self._create_summary()
+        self._create_saver()
+        self._create_summary()
 
         pass
 
@@ -86,6 +86,8 @@ class YOLOv2:
             if self.data_format != 'channels_last':
                 pred = tf.transpose(pred, [0, 2, 3, 1])
             pshape = pred.get_shape()
+            if self.input_shape[1] % int(pshape[2]) != 0:
+                warnings.warn('downsampling rate is not a interget', UserWarning)
             downsampling_rate = float(self.input_shape[1] / int(pshape[2]))
         with tf.variable_scope('train'):
             topleft_x = tf.constant([i for i in range(pshape[1])], dtype=tf.float32)
@@ -99,7 +101,7 @@ class YOLOv2:
             topleft_x = tf.concat([topleft_x]*pshape[2], 2)
             topleft_y = tf.concat([topleft_y]*pshape[1], 1)
             topleft = tf.concat([topleft_x, topleft_y], -1)
-            pclass = pred[..., :self.num_classes*self.num_priors]
+            pclass = tf.nn.softmax(pred[..., :self.num_classes*self.num_priors])
             pbbox_xy = tf.nn.sigmoid(pred[..., self.num_classes*self.num_priors:self.num_classes*self.num_priors+self.num_priors*2])
             pbbox_hw = pred[..., self.num_classes*self.num_priors+self.num_priors*2:self.num_classes*self.num_priors+self.num_priors*4]
             pconf = tf.nn.sigmoid(pred[..., self.num_classes*self.num_priors+self.num_priors*4:])
