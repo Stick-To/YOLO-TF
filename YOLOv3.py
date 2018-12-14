@@ -36,8 +36,8 @@ class YOLOv3:
         self.num_priors = len(config['anchor_boxes_priors']) // 3
         self.final_units = (self.num_classes + 5) * self.num_priors
         self.anchor_boxes_priors = []
-        for i in range(3):
-            self.anchor_boxes_priors.append(anchor_boxes_priors[..., self.num_priors*i:self.num_priors*(i+1),:])
+        for i in range(2, -1, -1):
+            self.anchor_boxes_priors.append(anchor_boxes_priors[..., self.num_priors*i:self.num_priors*(i+1), :])
 
         self.pretraining_global_step = tf.get_variable(name='pretraining_global_step', initializer=tf.constant(0), trainable=False)
         self.global_step = tf.get_variable(name='global_step', initializer=tf.constant(0), trainable=False)
@@ -91,35 +91,35 @@ class YOLOv3:
                 warnings.warn('downsampling rate is not a interget', UserWarning)
 
         with tf.variable_scope('train'):
-            t1opleft_x = tf.constant([i for i in range(p1shape[1])], dtype=tf.float32)
-            t1opleft_y = tf.constant([j for j in range(p1shape[2])], dtype=tf.float32)
-            t2opleft_x = tf.constant([i for i in range(p2shape[1])], dtype=tf.float32)
-            t2opleft_y = tf.constant([j for j in range(p2shape[2])], dtype=tf.float32)
-            t3opleft_x = tf.constant([i for i in range(p3shape[1])], dtype=tf.float32)
-            t3opleft_y = tf.constant([j for j in range(p3shape[2])], dtype=tf.float32)
+            topleft_x1 = tf.constant([i for i in range(p1shape[1])], dtype=tf.float32)
+            topleft_y1 = tf.constant([j for j in range(p1shape[2])], dtype=tf.float32)
+            topleft_x2 = tf.constant([i for i in range(p2shape[1])], dtype=tf.float32)
+            topleft_y2 = tf.constant([j for j in range(p2shape[2])], dtype=tf.float32)
+            topleft_x3 = tf.constant([i for i in range(p3shape[1])], dtype=tf.float32)
+            topleft_y3 = tf.constant([j for j in range(p3shape[2])], dtype=tf.float32)
             for i in range(3):
-                t1opleft_x = tf.expand_dims(t1opleft_x, -1)
-                t2opleft_x = tf.expand_dims(t2opleft_x, -1)
-                t3opleft_x = tf.expand_dims(t3opleft_x, -1)
-            t1opleft_x = tf.expand_dims(t1opleft_x, 0)
-            t2opleft_x = tf.expand_dims(t2opleft_x, 0)
-            t3opleft_x = tf.expand_dims(t3opleft_x, 0)
+                topleft_x1 = tf.expand_dims(topleft_x1, -1)
+                topleft_x2 = tf.expand_dims(topleft_x2, -1)
+                topleft_x3 = tf.expand_dims(topleft_x3, -1)
+            topleft_x1 = tf.expand_dims(topleft_x1, 0)
+            topleft_x2 = tf.expand_dims(topleft_x2, 0)
+            topleft_x3 = tf.expand_dims(topleft_x3, 0)
             for i in range(2):
-                t1opleft_y = tf.expand_dims(t1opleft_y, -1)
-                t1opleft_y = tf.expand_dims(t1opleft_y, 0)
-                t2opleft_y = tf.expand_dims(t2opleft_y, -1)
-                t2opleft_y = tf.expand_dims(t2opleft_y, 0)
-                t3opleft_y = tf.expand_dims(t3opleft_y, -1)
-                t3opleft_y = tf.expand_dims(t3opleft_y, 0)
-            t1opleft_x = tf.concat([t1opleft_x]*p1shape[2], 2)
-            t1opleft_y = tf.concat([t1opleft_y]*p1shape[1], 1)
-            t2opleft_x = tf.concat([t2opleft_x]*p2shape[2], 2)
-            t2opleft_y = tf.concat([t2opleft_y]*p2shape[1], 1)
-            t3opleft_x = tf.concat([t3opleft_x]*p3shape[2], 2)
-            t3opleft_y = tf.concat([t3opleft_y]*p3shape[1], 1)
-            t1opleft = tf.concat([t1opleft_x, t1opleft_y], -1)
-            t2opleft = tf.concat([t2opleft_x, t2opleft_y], -1)
-            t3opleft = tf.concat([t3opleft_x, t3opleft_y], -1)
+                topleft_y1 = tf.expand_dims(topleft_y1, -1)
+                topleft_y1 = tf.expand_dims(topleft_y1, 0)
+                topleft_y2 = tf.expand_dims(topleft_y2, -1)
+                topleft_y2 = tf.expand_dims(topleft_y2, 0)
+                topleft_y3 = tf.expand_dims(topleft_y3, -1)
+                topleft_y3 = tf.expand_dims(topleft_y3, 0)
+            topleft_x1 = tf.concat([topleft_x1]*p1shape[2], 2)
+            topleft_y1 = tf.concat([topleft_y1]*p1shape[1], 1)
+            topleft_x2 = tf.concat([topleft_x2]*p2shape[2], 2)
+            topleft_y2 = tf.concat([topleft_y2]*p2shape[1], 1)
+            topleft_x3 = tf.concat([topleft_x3]*p3shape[2], 2)
+            topleft_y3 = tf.concat([topleft_y3]*p3shape[1], 1)
+            topleft1 = tf.concat([topleft_x1, topleft_y1], -1)
+            topleft2 = tf.concat([topleft_x2, topleft_y2], -1)
+            topleft3 = tf.concat([topleft_x3, topleft_y3], -1)
 
             p1class = pred1[..., :self.num_classes*self.num_priors]
             p1bbox_xy = tf.nn.sigmoid(pred1[..., self.num_classes*self.num_priors:self.num_classes*self.num_priors+self.num_priors*2])
@@ -135,7 +135,7 @@ class YOLOv3:
             p3conf = tf.nn.sigmoid(pred3[..., self.num_classes*self.num_priors+self.num_priors*4:])
 
             p1classi = tf.reshape(p1class, [self.batch_size, p1shape[1], p1shape[2], self.num_priors, self.num_classes])
-            p1bbox_xy = tf.reshape(p1bbox_xy, [self.batch_size, p1shape[1], p1shape[2], self.num_priors, 2]) + t1opleft
+            p1bbox_xy = tf.reshape(p1bbox_xy, [self.batch_size, p1shape[1], p1shape[2], self.num_priors, 2]) + topleft1
             p1bbox_hw = tf.reshape(p1bbox_hw, [self.batch_size, p1shape[1], p1shape[2], self.num_priors, 2])
             dp1bbox_xy = p1bbox_xy * downsampling_rate1
             dp1bbox_hw = tf.exp(p1bbox_hw) * self.anchor_boxes_priors[0]
@@ -144,7 +144,7 @@ class YOLOv3:
             p1confi = tf.reshape(p1conf, [self.batch_size, p1shape[1], p1shape[2], self.num_priors, 1])
 
             p2classi = tf.reshape(p2class, [self.batch_size, p2shape[1], p2shape[2], self.num_priors, self.num_classes])
-            p2bbox_xy = tf.reshape(p2bbox_xy, [self.batch_size, p2shape[1], p2shape[2], self.num_priors, 2]) + t2opleft
+            p2bbox_xy = tf.reshape(p2bbox_xy, [self.batch_size, p2shape[1], p2shape[2], self.num_priors, 2]) + topleft2
             p2bbox_hw = tf.reshape(p2bbox_hw, [self.batch_size, p2shape[1], p2shape[2], self.num_priors, 2])
             dp2bbox_xy = p2bbox_xy * downsampling_rate2
             dp2bbox_hw = tf.exp(p2bbox_hw) * self.anchor_boxes_priors[1]
@@ -153,7 +153,7 @@ class YOLOv3:
             p2confi = tf.reshape(p2conf, [self.batch_size, p2shape[1], p2shape[2], self.num_priors, 1])
 
             p3classi = tf.reshape(p3class, [self.batch_size, p3shape[1], p3shape[2], self.num_priors, self.num_classes])
-            p3bbox_xy = tf.reshape(p3bbox_xy, [self.batch_size, p3shape[1], p3shape[2], self.num_priors, 2]) + t3opleft
+            p3bbox_xy = tf.reshape(p3bbox_xy, [self.batch_size, p3shape[1], p3shape[2], self.num_priors, 2]) + topleft3
             p3bbox_hw = tf.reshape(p3bbox_hw, [self.batch_size, p3shape[1], p3shape[2], self.num_priors, 2])
             dp3bbox_xy = p3bbox_xy * downsampling_rate3
             dp3bbox_hw = tf.exp(p3bbox_hw) * self.anchor_boxes_priors[2]
@@ -164,21 +164,21 @@ class YOLOv3:
             a1bbox_hw = tf.concat([self.anchor_boxes_priors[0]]*p1shape[2], axis=2)
             a1bbox_hw = tf.concat([a1bbox_hw]*p1shape[1], axis=1)
             a1bbox_hw = tf.concat([a1bbox_hw]*self.batch_size, axis=0)
-            a1bbox_xy = (t1opleft + 0.5) * downsampling_rate1
+            a1bbox_xy = (topleft1 + 0.5) * downsampling_rate1
             a1bbox_y1x1 = tf.concat([tf.expand_dims(a1bbox_xy[..., 0]-a1bbox_hw[..., 0]/2, -1), tf.expand_dims(a1bbox_xy[..., 1]-a1bbox_hw[..., 1]/2, -1)], -1)
             a1bbox_y2x2 = tf.concat([tf.expand_dims(a1bbox_xy[..., 0]+a1bbox_hw[..., 0]/2, -1), tf.expand_dims(a1bbox_xy[..., 1]+a1bbox_hw[..., 1]/2, -1)], -1)
 
             a2bbox_hw = tf.concat([self.anchor_boxes_priors[1]]*p2shape[2], axis=2)
             a2bbox_hw = tf.concat([a2bbox_hw]*p2shape[1], axis=1)
             a2bbox_hw = tf.concat([a2bbox_hw]*self.batch_size, axis=0)
-            a2bbox_xy = (t2opleft + 0.5) * downsampling_rate2
+            a2bbox_xy = (topleft2 + 0.5) * downsampling_rate2
             a2bbox_y1x1 = tf.concat([tf.expand_dims(a2bbox_xy[..., 0]-a2bbox_hw[..., 0]/2, -1), tf.expand_dims(a2bbox_xy[..., 1]-a2bbox_hw[..., 1]/2, -1)], -1)
             a2bbox_y2x2 = tf.concat([tf.expand_dims(a2bbox_xy[..., 0]+a2bbox_hw[..., 0]/2, -1), tf.expand_dims(a2bbox_xy[..., 1]+a2bbox_hw[..., 1]/2, -1)], -1)
 
             a3bbox_hw = tf.concat([self.anchor_boxes_priors[2]]*p3shape[2], axis=2)
             a3bbox_hw = tf.concat([a3bbox_hw]*p3shape[1], axis=1)
             a3bbox_hw = tf.concat([a3bbox_hw]*self.batch_size, axis=0)
-            a3bbox_xy = (t3opleft + 0.5) * downsampling_rate3
+            a3bbox_xy = (topleft3 + 0.5) * downsampling_rate3
             a3bbox_y1x1 = tf.concat([tf.expand_dims(a3bbox_xy[..., 0]-a3bbox_hw[..., 0]/2, -1), tf.expand_dims(a3bbox_xy[..., 1]-a3bbox_hw[..., 1]/2, -1)], -1)
             a3bbox_y2x2 = tf.concat([tf.expand_dims(a3bbox_xy[..., 0]+a3bbox_hw[..., 0]/2, -1), tf.expand_dims(a3bbox_xy[..., 1]+a3bbox_hw[..., 1]/2, -1)], -1)
 
@@ -248,16 +248,16 @@ class YOLOv3:
             ag3iou_rate = ag3iou_area / (tf.matmul(a3bbox_hw, g3bbox_hw, transpose_b=True) - ag3iou_area)
             best3_agiou_rate = tf.reduce_max(ag3iou_rate, axis=[1, 2, 3], keepdims=True)
 
-            best1_agiou_rate_ = tf.cast(best1_agiou_rate>best2_agiou_rate, tf.float32) * tf.cast(best1_agiou_rate>best3_agiou_rate, tf.float32)
-            best2_agiou_rate_ = tf.cast(best2_agiou_rate>best1_agiou_rate, tf.float32) * tf.cast(best2_agiou_rate>best3_agiou_rate, tf.float32)
-            best3_agiou_rate_ = tf.cast(best3_agiou_rate>best1_agiou_rate, tf.float32) * tf.cast(best3_agiou_rate>best2_agiou_rate, tf.float32)
+            best1_agiou_rate_ = tf.cast(best1_agiou_rate > best2_agiou_rate, tf.float32) * tf.cast(best1_agiou_rate > best3_agiou_rate, tf.float32)
+            best2_agiou_rate_ = tf.cast(best2_agiou_rate > best1_agiou_rate, tf.float32) * tf.cast(best2_agiou_rate > best3_agiou_rate, tf.float32)
+            best3_agiou_rate_ = tf.cast(best3_agiou_rate > best1_agiou_rate, tf.float32) * tf.cast(best3_agiou_rate > best2_agiou_rate, tf.float32)
             best1_agiou_rate = best1_agiou_rate_ * best1_agiou_rate
             best2_agiou_rate = best2_agiou_rate_ * best2_agiou_rate
             best3_agiou_rate = best3_agiou_rate_ * best3_agiou_rate
 
-            detectors_mask1 = tf.cast(ag1iou_rate == best1_agiou_rate and ag1iou_rate != 0, tf.float32)
-            detectors_mask2 = tf.cast(ag2iou_rate == best2_agiou_rate and ag2iou_rate != 0, tf.float32)
-            detectors_mask3 = tf.cast(ag3iou_rate == best3_agiou_rate and ag3iou_rate != 0, tf.float32)
+            detectors_mask1 = tf.cast(tf.equal(ag1iou_rate, best1_agiou_rate), tf.float32) * (1 - tf.cast(tf.equal(ag1iou_rate, tf.zeros_like(ag1iou_rate)), tf.float32))
+            detectors_mask2 = tf.cast(tf.equal(ag2iou_rate, best2_agiou_rate), tf.float32) * (1 - tf.cast(tf.equal(ag2iou_rate, tf.zeros_like(ag2iou_rate)), tf.float32))
+            detectors_mask3 = tf.cast(tf.equal(ag3iou_rate, best3_agiou_rate), tf.float32) * (1 - tf.cast(tf.equal(ag3iou_rate, tf.zeros_like(ag3iou_rate)), tf.float32))
 
             dp1bbox_y1x1 = tf.concat([tf.expand_dims(dp1bbox_y1x1i, -2)]*self.most_labels_per_image, -2)
             dp1bbox_y2x2 = tf.concat([tf.expand_dims(dp1bbox_y2x2i, -2)]*self.most_labels_per_image, -2)
@@ -312,8 +312,8 @@ class YOLOv3:
             ng1bbox_xy = tf.concat([tf.expand_dims(g1bbox_xy/downsampling_rate1, -3)]*self.num_priors, -3)
             ng1bbox_hw = tf.concat([tf.expand_dims(tf.log(g1bbox_hw), -3)]*self.num_priors, -3) / tf.expand_dims(self.anchor_boxes_priors[0], -2)
             coord_loss1 = self.coord_sacle * tf.reduce_sum(
-                detectors_mask1 * tf.square(p1bbox_xy - ng1bbox_xy) +
-                detectors_mask1 * tf.square(tf.sqrt(p1bbox_hw) - tf.sqrt(ng1bbox_hw))
+                tf.expand_dims(detectors_mask1, -1) * tf.square(p1bbox_xy - ng1bbox_xy) +
+                tf.expand_dims(detectors_mask1, -1) * tf.square(tf.sqrt(p1bbox_hw) - tf.sqrt(ng1bbox_hw))
             )
 
             p2bbox_xy = tf.concat([tf.expand_dims(p2bbox_xy, -2)]*self.most_labels_per_image, -2)
@@ -321,8 +321,8 @@ class YOLOv3:
             ng2bbox_xy = tf.concat([tf.expand_dims(g2bbox_xy/downsampling_rate2, -3)]*self.num_priors, -3)
             ng2bbox_hw = tf.concat([tf.expand_dims(tf.log(g2bbox_hw), -3)]*self.num_priors, -3) / tf.expand_dims(self.anchor_boxes_priors[1], -2)
             coord_loss2 = self.coord_sacle * tf.reduce_sum(
-                detectors_mask2 * tf.square(p2bbox_xy - ng2bbox_xy) +
-                detectors_mask2 * tf.square(tf.sqrt(p2bbox_hw) - tf.sqrt(ng2bbox_hw))
+                tf.expand_dims(detectors_mask2, -1) * tf.square(p2bbox_xy - ng2bbox_xy) +
+                tf.expand_dims(detectors_mask2, -1) * tf.square(tf.sqrt(p2bbox_hw) - tf.sqrt(ng2bbox_hw))
             )
 
             p3bbox_xy = tf.concat([tf.expand_dims(p3bbox_xy, -2)]*self.most_labels_per_image, -2)
@@ -330,8 +330,8 @@ class YOLOv3:
             ng3bbox_xy = tf.concat([tf.expand_dims(g3bbox_xy/downsampling_rate3, -3)]*self.num_priors, -3)
             ng3bbox_hw = tf.concat([tf.expand_dims(tf.log(g3bbox_hw), -3)]*self.num_priors, -3) / tf.expand_dims(self.anchor_boxes_priors[2], -2)
             coord_loss3 = self.coord_sacle * tf.reduce_sum(
-                detectors_mask3 * tf.square(p3bbox_xy - ng3bbox_xy) +
-                detectors_mask3 * tf.square(tf.sqrt(p3bbox_hw) - tf.sqrt(ng3bbox_hw))
+                tf.expand_dims(detectors_mask3, -1) * tf.square(p3bbox_xy - ng3bbox_xy) +
+                tf.expand_dims(detectors_mask3, -1) * tf.square(tf.sqrt(p3bbox_hw) - tf.sqrt(ng3bbox_hw))
             )
 
             p1class = tf.concat([tf.expand_dims(p1classi, -2)]*self.most_labels_per_image, -2)
@@ -342,7 +342,7 @@ class YOLOv3:
             g1class = tf.concat([g1class]*p1shape[2], 2)
             g1class = tf.concat([g1class]*self.num_priors, 3)
             class_loss1 = self.classifier_scale * tf.reduce_sum(
-                detectors_mask1 * tf.square(g1class - p1class)
+                tf.expand_dims(detectors_mask1, -1) * tf.square(g1class - p1class)
             )
 
             p2class = tf.concat([tf.expand_dims(p2classi, -2)]*self.most_labels_per_image, -2)
@@ -353,7 +353,7 @@ class YOLOv3:
             g2class = tf.concat([g2class]*p2shape[2], 2)
             g2class = tf.concat([g2class]*self.num_priors, 3)
             class_loss2 = self.classifier_scale * tf.reduce_sum(
-                detectors_mask2 * tf.square(g2class - p2class)
+                tf.expand_dims(detectors_mask2, -1) * tf.square(g2class - p2class)
             )
 
             p3class = tf.concat([tf.expand_dims(p3classi, -2)]*self.most_labels_per_image, -2)
@@ -364,7 +364,7 @@ class YOLOv3:
             g3class = tf.concat([g3class]*p3shape[2], 2)
             g3class = tf.concat([g3class]*self.num_priors, 3)
             class_loss3 = self.classifier_scale * tf.reduce_sum(
-                detectors_mask3 * tf.square(g3class - p3class)
+                tf.expand_dims(detectors_mask3, -1) * tf.square(g3class - p3class)
             )
 
             total_loss1 = conf_loss1 + coord_loss1 + class_loss1
