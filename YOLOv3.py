@@ -30,6 +30,9 @@ class YOLOv3:
         self.nms_iou_threshold = config['nms_iou_threshold']
         self.rescore_confidence = config['rescore_confidence']
         assert len(config['anchor_boxes_priors']) >= 3
+        if len(config['anchor_boxes_priors']) % 3 != 0:
+            warnings.warn('If the number of  anchor boxes priors is a multiple of three, the first few are ignored!', UserWarning)
+
         anchor_boxes_priors = tf.convert_to_tensor(config['anchor_boxes_priors'], dtype=tf.float32)
         for i in range(3):
             anchor_boxes_priors = tf.expand_dims(anchor_boxes_priors, 0)
@@ -287,6 +290,7 @@ class YOLOv3:
             p3conf = tf.concat([p3confi]*self.most_labels_per_image, axis=-1)
 
             noobj_loss1 = tf.reduce_sum((1. - detectors_mask1) * noobject_mask1 * tf.square(p1conf))
+            noobj_loss1 = noobj_loss1 / self.most_labels_per_image
             if self.rescore_confidence:
                 obj_loss1 = tf.reduce_sum(detectors_mask1 * tf.square(dpg1iou_rate - p1conf))
             else:
@@ -294,6 +298,7 @@ class YOLOv3:
             conf_loss1 = self.noobj_scale * noobj_loss1 + self.obj_scale * obj_loss1
 
             noobj_loss2 = tf.reduce_sum((1. - detectors_mask2) * noobject_mask2 * tf.square(p2conf))
+            noobj_loss2 = noobj_loss2 / self.most_labels_per_image
             if self.rescore_confidence:
                 obj_loss2 = tf.reduce_sum(detectors_mask2 * tf.square(dpg2iou_rate - p2conf))
             else:
@@ -301,6 +306,7 @@ class YOLOv3:
             conf_loss2 = self.noobj_scale * noobj_loss2 + self.obj_scale * obj_loss2
 
             noobj_loss3 = tf.reduce_sum((1. - detectors_mask3) * noobject_mask3 * tf.square(p3conf))
+            noobj_loss3 = noobj_loss3 / self.most_labels_per_image
             if self.rescore_confidence:
                 obj_loss3 = tf.reduce_sum(detectors_mask3 * tf.square(dpg3iou_rate - p3conf))
             else:

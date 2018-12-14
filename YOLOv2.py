@@ -181,9 +181,9 @@ class YOLOv2:
             class_loss = self.classifier_scale * tf.reduce_sum(
                 tf.expand_dims(detectors_mask, -1) * tf.square(gclass - pclass)
             )
-            class_loss = class_loss / self.most_labels_per_image
         total_loss = conf_loss + coord_loss + class_loss
-        with tf.variable_scope('inference'):
+        total_loss = total_loss / self.batch_size
+        with tf.variable_scope('test'):
             scoresi = tf.reshape(pclassi * pconfi, [self.batch_size, -1, self.num_classes])
             dpbbox_y1x1i = tf.reshape(dpbbox_y1x1i, [self.batch_size, -1, 2])
             dpbbox_y2x2i = tf.reshape(dpbbox_y2x2i, [self.batch_size, -1, 2])

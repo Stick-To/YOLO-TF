@@ -130,7 +130,7 @@ class YOLOv1:
                 loss = location_loss + confidence_loss + classifier_loss
                 total_loss.append(loss)
             total_loss = tf.reduce_mean(total_loss)
-        with tf.variable_scope('inference'):
+        with tf.variable_scope('test'):
             classifier_ = tf.concat([classifier[0, :, :]]*self.B, axis=1)
             classifier_ = tf.reshape(classifier_, [self.B, self.S*self.S, -1])
             confidence_ = tf.reshape(confidence[0, :, :], [self.B, self.S*self.S, 1])
