@@ -86,53 +86,57 @@ class YOLOv2:
             if self.data_format != 'channels_last':
                 pred = tf.transpose(pred, [0, 2, 3, 1])
             pshape = pred.get_shape()
-            if self.input_shape[1] % int(pshape[2]) != 0:
-                warnings.warn('downsampling rate is not a interget', UserWarning)
+            if self.data_format == 'channels_last':
+                if self.input_shape[0] % int(pshape[1]) != 0 or self.input_shape[1] % int(pshape[2]):
+                    warnings.warn('Input shape is not a multiple of downsampling!', UserWarning)
+            else:
+                if self.input_shape[1] % int(pshape[1]) != 0 or self.input_shape[2] % int(pshape[2]):
+                    warnings.warn('Input shape is not a multiple of downsampling!', UserWarning)
             downsampling_rate = float(self.input_shape[1] / int(pshape[2]))
         with tf.variable_scope('train'):
-            topleft_x = tf.constant([i for i in range(pshape[1])], dtype=tf.float32)
-            topleft_y = tf.constant([j for j in range(pshape[2])], dtype=tf.float32)
+            topleft_y = tf.constant([i for i in range(pshape[1])], dtype=tf.float32)
+            topleft_x = tf.constant([j for j in range(pshape[2])], dtype=tf.float32)
             for i in range(3):
-                topleft_x = tf.expand_dims(topleft_x, -1)
-            topleft_x = tf.expand_dims(topleft_x, 0)
-            for i in range(2):
                 topleft_y = tf.expand_dims(topleft_y, -1)
-                topleft_y = tf.expand_dims(topleft_y, 0)
-            topleft_x = tf.concat([topleft_x]*pshape[2], 2)
-            topleft_y = tf.concat([topleft_y]*pshape[1], 1)
-            topleft = tf.concat([topleft_x, topleft_y], -1)
+            topleft_y = tf.expand_dims(topleft_y, 0)
+            for i in range(2):
+                topleft_x = tf.expand_dims(topleft_x, -1)
+                topleft_x = tf.expand_dims(topleft_x, 0)
+            topleft_y = tf.concat([topleft_y]*pshape[2], 2)
+            topleft_x = tf.concat([topleft_x]*pshape[1], 1)
+            topleft = tf.concat([topleft_y, topleft_x], -1)
             pclass = tf.nn.softmax(pred[..., :self.num_classes*self.num_priors])
-            pbbox_xy = tf.nn.sigmoid(pred[..., self.num_classes*self.num_priors:self.num_classes*self.num_priors+self.num_priors*2])
+            pbbox_yx = tf.nn.sigmoid(pred[..., self.num_classes*self.num_priors:self.num_classes*self.num_priors+self.num_priors*2])
             pbbox_hw = pred[..., self.num_classes*self.num_priors+self.num_priors*2:self.num_classes*self.num_priors+self.num_priors*4]
             pconf = tf.nn.sigmoid(pred[..., self.num_classes*self.num_priors+self.num_priors*4:])
 
             pclassi = tf.reshape(pclass, [self.batch_size, pshape[1], pshape[2], self.num_priors, self.num_classes])
-            pbbox_xy = tf.reshape(pbbox_xy, [self.batch_size, pshape[1], pshape[2], self.num_priors, 2]) + topleft
+            pbbox_yx = tf.reshape(pbbox_yx, [self.batch_size, pshape[1], pshape[2], self.num_priors, 2]) + topleft
             pbbox_hw = tf.reshape(pbbox_hw, [self.batch_size, pshape[1], pshape[2], self.num_priors, 2])
-            dpbbox_xy = pbbox_xy * downsampling_rate
+            dpbbox_yx = pbbox_yx * downsampling_rate
             dpbbox_hw = tf.exp(pbbox_hw) * self.anchor_boxes_priors
-            dpbbox_y1x1i = tf.concat([tf.expand_dims(dpbbox_xy[..., 0]-dpbbox_hw[..., 0]/2, -1), tf.expand_dims(dpbbox_xy[..., 1]-dpbbox_hw[..., 1]/2, -1)], -1)
-            dpbbox_y2x2i = tf.concat([tf.expand_dims(dpbbox_xy[..., 0]+dpbbox_hw[..., 0]/2, -1), tf.expand_dims(dpbbox_xy[..., 1]+dpbbox_hw[..., 1]/2, -1)], -1)
+            dpbbox_y1x1i = tf.concat([tf.expand_dims(dpbbox_yx[..., 0]-dpbbox_hw[..., 0]/2, -1), tf.expand_dims(dpbbox_yx[..., 1]-dpbbox_hw[..., 1]/2, -1)], -1)
+            dpbbox_y2x2i = tf.concat([tf.expand_dims(dpbbox_yx[..., 0]+dpbbox_hw[..., 0]/2, -1), tf.expand_dims(dpbbox_yx[..., 1]+dpbbox_hw[..., 1]/2, -1)], -1)
             pconfi = tf.reshape(pconf, [self.batch_size, pshape[1], pshape[2], self.num_priors, 1])
             
             abbox_hw = tf.concat([self.anchor_boxes_priors]*pshape[2], axis=2)
             abbox_hw = tf.concat([abbox_hw]*pshape[1], axis=1)
             abbox_hw = tf.concat([abbox_hw]*self.batch_size, axis=0)
-            abbox_xy = (topleft + 0.5) * downsampling_rate
-            abbox_y1x1 = tf.concat([tf.expand_dims(abbox_xy[..., 0]-abbox_hw[..., 0]/2, -1), tf.expand_dims(abbox_xy[..., 1]-abbox_hw[..., 1]/2, -1)], -1)
-            abbox_y2x2 = tf.concat([tf.expand_dims(abbox_xy[..., 0]+abbox_hw[..., 0]/2, -1), tf.expand_dims(abbox_xy[..., 1]+abbox_hw[..., 1]/2, -1)], -1)
-            gbbox_xy = self.bbox_ground_truth[:, :, :2]
+            abbox_yx = (topleft + 0.5) * downsampling_rate
+            abbox_y1x1 = tf.concat([tf.expand_dims(abbox_yx[..., 0]-abbox_hw[..., 0]/2, -1), tf.expand_dims(abbox_yx[..., 1]-abbox_hw[..., 1]/2, -1)], -1)
+            abbox_y2x2 = tf.concat([tf.expand_dims(abbox_yx[..., 0]+abbox_hw[..., 0]/2, -1), tf.expand_dims(abbox_yx[..., 1]+abbox_hw[..., 1]/2, -1)], -1)
+            gbbox_yx = self.bbox_ground_truth[:, :, :2]
             gbbox_hw = self.bbox_ground_truth[:, :, 2:]
             for i in range(2):
-                gbbox_xy = tf.expand_dims(gbbox_xy, 1)
+                gbbox_yx = tf.expand_dims(gbbox_yx, 1)
                 gbbox_hw = tf.expand_dims(gbbox_hw, 1)
-            gbbox_xy = tf.concat([gbbox_xy]*pshape[1], axis=1)
+            gbbox_yx = tf.concat([gbbox_yx]*pshape[1], axis=1)
             gbbox_hw = tf.concat([gbbox_hw]*pshape[1], axis=1)
-            gbbox_xy = tf.concat([gbbox_xy]*pshape[2], axis=2)
+            gbbox_yx = tf.concat([gbbox_yx]*pshape[2], axis=2)
             gbbox_hw = tf.concat([gbbox_hw]*pshape[2], axis=2)
 
-            gbbox_y1x1 = tf.concat([tf.expand_dims(gbbox_xy[..., 0]-gbbox_hw[..., 0]/2, -1), tf.expand_dims(gbbox_xy[..., 1]-gbbox_hw[..., 1]/2, -1)], -1)
-            gbbox_y2x2 = tf.concat([tf.expand_dims(gbbox_xy[..., 0]+gbbox_hw[..., 0]/2, -1), tf.expand_dims(gbbox_xy[..., 1]+gbbox_hw[..., 1]/2, -1)], -1)
+            gbbox_y1x1 = tf.concat([tf.expand_dims(gbbox_yx[..., 0]-gbbox_hw[..., 0]/2, -1), tf.expand_dims(gbbox_yx[..., 1]-gbbox_hw[..., 1]/2, -1)], -1)
+            gbbox_y2x2 = tf.concat([tf.expand_dims(gbbox_yx[..., 0]+gbbox_hw[..., 0]/2, -1), tf.expand_dims(gbbox_yx[..., 1]+gbbox_hw[..., 1]/2, -1)], -1)
             abbox_y1x1 = tf.concat([tf.expand_dims(abbox_y1x1, -2)]*self.most_labels_per_image, -2)
             abbox_y2x2 = tf.concat([tf.expand_dims(abbox_y2x2, -2)]*self.most_labels_per_image, -2)
             gbbox_y1x1 = tf.concat([tf.expand_dims(gbbox_y1x1, -3)]*self.num_priors, -3)
@@ -162,12 +166,12 @@ class YOLOv2:
                 obj_loss = tf.reduce_sum(detectors_mask * tf.square(1. - pconf))
             conf_loss = self.noobj_scale * noobj_loss + self.obj_scale * obj_loss
 
-            pbbox_xy = tf.concat([tf.expand_dims(pbbox_xy, -2)]*self.most_labels_per_image, -2)
+            pbbox_yx = tf.concat([tf.expand_dims(pbbox_yx, -2)]*self.most_labels_per_image, -2)
             pbbox_hw = tf.concat([tf.expand_dims(pbbox_hw, -2)]*self.most_labels_per_image, -2)
-            ngbbox_xy = tf.concat([tf.expand_dims(gbbox_xy/downsampling_rate, -3)]*self.num_priors, -3)
+            ngbbox_yx = tf.concat([tf.expand_dims(gbbox_yx/downsampling_rate, -3)]*self.num_priors, -3)
             ngbbox_hw = tf.concat([tf.expand_dims(tf.log(gbbox_hw), -3)]*self.num_priors, -3) / tf.expand_dims(self.anchor_boxes_priors, -2)
             coord_loss = self.coord_sacle * tf.reduce_sum(
-                tf.expand_dims(detectors_mask, -1) * tf.square(pbbox_xy - ngbbox_xy) +
+                tf.expand_dims(detectors_mask, -1) * tf.square(pbbox_yx - ngbbox_yx) +
                 tf.expand_dims(detectors_mask, -1) * tf.square(tf.sqrt(pbbox_hw) - tf.sqrt(ngbbox_hw))
             )
 

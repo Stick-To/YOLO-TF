@@ -21,6 +21,7 @@ config = {
     'nms_score_threshold': 0.2,
     'nms_max_boxes': 20,
     'nms_iou_threshold': 0.5,
+    # if True the ground truth is 1.0 else iou of anchor predicted bbox and ground truth bbox
     'rescore_confidence': True,
     'anchor_boxes_priors': [[10, 13], [16, 30], [33, 23], [30, 61], [62, 45], [59, 119], [116, 90], [156, 198], [373, 326]]
 }
