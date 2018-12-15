@@ -29,15 +29,16 @@ class YOLOv3:
         self.nms_max_boxes = config['nms_max_boxes']
         self.nms_iou_threshold = config['nms_iou_threshold']
         self.rescore_confidence = config['rescore_confidence']
-        assert len(config['anchor_boxes_priors']) >= 3
-        if len(config['anchor_boxes_priors']) % 3 != 0:
-            warnings.warn('If the number of  anchor boxes priors is a multiple of three, the first few are ignored!', UserWarning)
+
+        self.num_pyramid = 3   # there are three pyramids for darknet-53
+        assert len(config['anchor_boxes_priors']) >= self.num_pyramid
+        if len(config['anchor_boxes_priors']) % self.num_pyramid != 0:
+            warnings.warn('If the number of  anchor boxes priors is a multiple of number of pyramids, the first few are ignored!', UserWarning)
 
         anchor_boxes_priors = tf.convert_to_tensor(config['anchor_boxes_priors'], dtype=tf.float32)
-        for i in range(3):
+        for i in range(self.num_pyramid):
             anchor_boxes_priors = tf.expand_dims(anchor_boxes_priors, 0)
 
-        self.num_pyramid = 3   # there are three pyramid for darknet-53
         self.num_priors_per_pyramid = len(config['anchor_boxes_priors']) // self.num_pyramid
         self.final_units = (self.num_classes + 5) * self.num_priors_per_pyramid
         self.anchor_boxes_priors = []
