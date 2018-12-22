@@ -51,9 +51,8 @@ class YOLOv2:
         shape = [self.batch_size]
         shape.extend(self.input_shape)
         self.images = tf.placeholder(dtype=tf.float32, shape=shape, name='images')
-        self.labels = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.most_labels_per_image, self.num_classes], name='labels')
-        self.pretraining_labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, self.num_classes], name='pre_training_labels')
-        self.bbox_ground_truth = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.most_labels_per_image, 4], name='bbox_ground_truth')
+        self.ground_truth = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.most_labels_per_image, 5], name='labels')
+        self.pretraining_labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, 1], name='pre_training_labels')
         self.lr = tf.placeholder(dtype=tf.float32, shape=[], name='lr')
 
     def _build_graph(self):
@@ -64,10 +63,11 @@ class YOLOv2:
             conv = self._conv_layer(features, self.num_classes, 1, 1, 'conv1')
             axes = [1, 2] if self.data_format == 'channels_last' else [2, 3]
             global_pool = tf.reduce_mean(conv, axis=axes, name='global_pool')
-            pre_loss = tf.losses.softmax_cross_entropy(self.pretraining_labels, global_pool, reduction=tf.losses.Reduction.MEAN)
+            pretraining_labels = tf.squeeze(tf.one_hot(self.pretraining_labels, self.num_classes))
+            pre_loss = tf.losses.softmax_cross_entropy(pretraining_labels, global_pool, reduction=tf.losses.Reduction.MEAN)
             self.pre_category_pred = tf.argmax(global_pool, 1)
             self.pretraining_accuracy = tf.reduce_mean(
-                tf.cast(tf.equal(self.pre_category_pred, tf.argmax(self.pretraining_labels, 1)), tf.float32), name='accuracy'
+                tf.cast(tf.equal(self.pre_category_pred, tf.argmax(pretraining_labels, 1)), tf.float32), name='accuracy'
             )
         with tf.variable_scope('regressor'):
             conv1 = self._conv_layer(features, 1024, 3, 1, 'conv1')
@@ -125,8 +125,8 @@ class YOLOv2:
             abbox_yx = (topleft + 0.5) * downsampling_rate
             abbox_y1x1 = tf.concat([tf.expand_dims(abbox_yx[..., 0]-abbox_hw[..., 0]/2, -1), tf.expand_dims(abbox_yx[..., 1]-abbox_hw[..., 1]/2, -1)], -1)
             abbox_y2x2 = tf.concat([tf.expand_dims(abbox_yx[..., 0]+abbox_hw[..., 0]/2, -1), tf.expand_dims(abbox_yx[..., 1]+abbox_hw[..., 1]/2, -1)], -1)
-            gbbox_yx = self.bbox_ground_truth[:, :, :2]
-            gbbox_hw = self.bbox_ground_truth[:, :, 2:]
+            gbbox_yx = self.ground_truth[:, :, :2]
+            gbbox_hw = self.ground_truth[:, :, 2:4]
             for i in range(2):
                 gbbox_yx = tf.expand_dims(gbbox_yx, 1)
                 gbbox_hw = tf.expand_dims(gbbox_hw, 1)
@@ -176,7 +176,9 @@ class YOLOv2:
             )
 
             pclass = tf.concat([tf.expand_dims(pclassi, -2)]*self.most_labels_per_image, -2)
-            gclass = tf.expand_dims(self.labels, 1)
+            gclass = tf.cast(self.ground_truth[:, :, 4:], tf.int32)
+            gclass = tf.squeeze(tf.one_hot(gclass, self.num_classes))
+            gclass = tf.expand_dims(gclass, 1)
             gclass = tf.expand_dims(gclass, 1)
             gclass = tf.expand_dims(gclass, 1)
             gclass = tf.concat([gclass]*pshape[1], 1)

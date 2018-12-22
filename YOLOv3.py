@@ -60,9 +60,8 @@ class YOLOv3:
         shape = [self.batch_size]
         shape.extend(self.input_shape)
         self.images = tf.placeholder(dtype=tf.float32, shape=shape, name='images')
-        self.labels = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.most_labels_per_image, self.num_classes], name='labels')
-        self.pretraining_labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, self.num_classes], name='pre_training_labels')
-        self.bbox_ground_truth = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.most_labels_per_image, 4], name='bbox_ground_truth')
+        self.ground_truth = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.most_labels_per_image, 5], name='labels')
+        self.pretraining_labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, 1], name='pre_training_labels')
         self.lr = tf.placeholder(dtype=tf.float32, shape=[], name='lr')
 
     def _build_graph(self):
@@ -73,7 +72,8 @@ class YOLOv3:
             conv = self._conv_layer(pyramid1, self.num_classes, 1, 1)
             axes = [1, 2] if self.data_format == 'channels_last' else [2, 3]
             global_pool = tf.reduce_mean(conv, axis=axes, name='global_pool')
-            pre_loss = tf.losses.softmax_cross_entropy(self.pretraining_labels, global_pool, reduction=tf.losses.Reduction.MEAN)
+            pretraining_labels = tf.squeeze(tf.one_hot(self.pretraining_labels, self.num_classes))
+            pre_loss = tf.losses.softmax_cross_entropy(pretraining_labels, global_pool, reduction=tf.losses.Reduction.MEAN)
             self.pre_category_pred = tf.argmax(global_pool, 1)
             self.pretraining_accuracy = tf.reduce_mean(
                 tf.cast(tf.equal(self.pre_category_pred, tf.argmax(self.pretraining_labels, 1)), tf.float32), name='accuracy'
@@ -192,8 +192,8 @@ class YOLOv3:
             a3bbox_y1x1 = tf.concat([tf.expand_dims(a3bbox_yx[..., 0]-a3bbox_hw[..., 0]/2, -1), tf.expand_dims(a3bbox_yx[..., 1]-a3bbox_hw[..., 1]/2, -1)], -1)
             a3bbox_y2x2 = tf.concat([tf.expand_dims(a3bbox_yx[..., 0]+a3bbox_hw[..., 0]/2, -1), tf.expand_dims(a3bbox_yx[..., 1]+a3bbox_hw[..., 1]/2, -1)], -1)
 
-            g1bbox_yx = self.bbox_ground_truth[:, :, :2]
-            g1bbox_hw = self.bbox_ground_truth[:, :, 2:]
+            g1bbox_yx = self.ground_truth[:, :, :2]
+            g1bbox_hw = self.ground_truth[:, :, 2:4]
             for i in range(2):
                 g1bbox_yx = tf.expand_dims(g1bbox_yx, 1)
                 g1bbox_hw = tf.expand_dims(g1bbox_hw, 1)
@@ -208,8 +208,8 @@ class YOLOv3:
             g1bbox_y1x1 = tf.concat([tf.expand_dims(g1bbox_y1x1, -3)]*self.num_priors_per_pyramid, -3)
             g1bbox_y2x2 = tf.concat([tf.expand_dims(g1bbox_y2x2, -3)]*self.num_priors_per_pyramid, -3)
 
-            g2bbox_yx = self.bbox_ground_truth[:, :, :2]
-            g2bbox_hw = self.bbox_ground_truth[:, :, 2:]
+            g2bbox_yx = self.ground_truth[:, :, :2]
+            g2bbox_hw = self.ground_truth[:, :, 2:4]
             for i in range(2):
                 g2bbox_yx = tf.expand_dims(g2bbox_yx, 1)
                 g2bbox_hw = tf.expand_dims(g2bbox_hw, 1)
@@ -224,8 +224,8 @@ class YOLOv3:
             g2bbox_y1x1 = tf.concat([tf.expand_dims(g2bbox_y1x1, -3)]*self.num_priors_per_pyramid, -3)
             g2bbox_y2x2 = tf.concat([tf.expand_dims(g2bbox_y2x2, -3)]*self.num_priors_per_pyramid, -3)
 
-            g3bbox_yx = self.bbox_ground_truth[:, :, :2]
-            g3bbox_hw = self.bbox_ground_truth[:, :, 2:]
+            g3bbox_yx = self.ground_truth[:, :, :2]
+            g3bbox_hw = self.ground_truth[:, :, 2:4]
             for i in range(2):
                 g3bbox_yx = tf.expand_dims(g3bbox_yx, 1)
                 g3bbox_hw = tf.expand_dims(g3bbox_hw, 1)
@@ -348,7 +348,9 @@ class YOLOv3:
             )
 
             p1class = tf.concat([tf.expand_dims(p1classi, -2)]*self.most_labels_per_image, -2)
-            g1class = tf.expand_dims(self.labels, 1)
+            g1class = tf.cast(self.ground_truth[:, :, 4:], tf.int32)
+            g1class = tf.squeeze(tf.one_hot(g1class, self.num_classes))
+            g1class = tf.expand_dims(g1class, 1)
             g1class = tf.expand_dims(g1class, 1)
             g1class = tf.expand_dims(g1class, 1)
             g1class = tf.concat([g1class]*p1shape[1], 1)
@@ -359,7 +361,9 @@ class YOLOv3:
             )
 
             p2class = tf.concat([tf.expand_dims(p2classi, -2)]*self.most_labels_per_image, -2)
-            g2class = tf.expand_dims(self.labels, 1)
+            g2class = tf.cast(self.ground_truth[:, :, 4:], tf.int32)
+            g2class = tf.squeeze(tf.one_hot(g2class, self.num_classes))
+            g2class = tf.expand_dims(g2class, 1)
             g2class = tf.expand_dims(g2class, 1)
             g2class = tf.expand_dims(g2class, 1)
             g2class = tf.concat([g2class]*p2shape[1], 1)
@@ -370,7 +374,9 @@ class YOLOv3:
             )
 
             p3class = tf.concat([tf.expand_dims(p3classi, -2)]*self.most_labels_per_image, -2)
-            g3class = tf.expand_dims(self.labels, 1)
+            g3class = tf.cast(self.ground_truth[:, :, 4:], tf.int32)
+            g3class = tf.squeeze(tf.one_hot(g3class, self.num_classes))
+            g3class = tf.expand_dims(g3class, 1)
             g3class = tf.expand_dims(g3class, 1)
             g3class = tf.expand_dims(g3class, 1)
             g3class = tf.concat([g3class]*p3shape[1], 1)
