@@ -9,6 +9,7 @@ import warnings
 import math
 import sys
 from utils.classname_encoder import classname_to_ids
+from utils.image_preprocessing import image_preprocess
 
 
 def int64_feature(values):
@@ -29,7 +30,7 @@ def float_feature(values):
     return tf.train.Feature(bytes_list=tf.train.FloatList(value=values))
 
 
-def xml_to_example(xmlpath, imgpath, target_size=None):
+def xml_to_example(xmlpath, imgpath):
     xml = etree.parse(xmlpath)
     root = xml.getroot()
     imgname = root.find('filename').text
@@ -41,11 +42,7 @@ def xml_to_example(xmlpath, imgpath, target_size=None):
     depth = int(size.find('depth').text)
     shape = np.asarray([height, width, depth], np.int32)
     xpath = xml.xpath('//object')
-    if target_size is not None:
-        assert len(xpath) <= target_size
-        ground_truth = np.zeros([target_size, 5], np.float32)
-    else:
-        ground_truth = np.zeros([len(xpath), 5], np.float32)
+    ground_truth = np.zeros([len(xpath), 5], np.float32)
     for i in range(len(xpath)):
         obj = xpath[i]
         classid = classname_to_ids[obj.find('name').text]
@@ -65,7 +62,7 @@ def xml_to_example(xmlpath, imgpath, target_size=None):
     return example
 
 
-def dataset2tfrecord(xml_dir, img_dir, output_dir, name, total_shards=5, target_size=10):
+def dataset2tfrecord(xml_dir, img_dir, output_dir, name, total_shards=5):
     if not tf.gfile.Exists(output_dir):
         tf.gfile.MakeDirs(output_dir)
         print(output_dir, 'does not exist, create it done')
@@ -88,32 +85,38 @@ def dataset2tfrecord(xml_dir, img_dir, output_dir, name, total_shards=5, target_
                 sys.stdout.write('\r>> Converting image %d/%d shard %d/%d' % (
                     i+1, len(xmllist), shard_id+1, total_shards))
                 sys.stdout.flush()
-                example = xml_to_example(xmllist[i], img_dir, target_size)
+                example = xml_to_example(xmllist[i], img_dir)
                 tf_writer.write(example.SerializeToString())
             sys.stdout.write('\n')
             sys.stdout.flush()
     return outputfiles
 
 
-def parse_function(data):
+def parse_function(data, config):
         features = tf.parse_single_example(data, features={
             'image': tf.FixedLenFeature([], tf.string),
             'shape': tf.FixedLenFeature([], tf.string),
             'ground_truth': tf.FixedLenFeature([], tf.string)
         })
         shape = tf.decode_raw(features['shape'], tf.int32)
-        ground_truth= tf.decode_raw(features['ground_truth'], tf.float32)
+        ground_truth = tf.decode_raw(features['ground_truth'], tf.float32)
         shape = tf.reshape(shape, [3])
         ground_truth = tf.reshape(ground_truth, [-1, 5])
         images = tf.image.decode_jpeg(features['image'], channels=3)
-        images = tf.reshape(images, shape)
+        images = tf.cast(tf.reshape(images, shape), tf.float32)
+        images, ground_truth = image_preprocess(image=images,
+                                                shape=shape,
+                                                ground_truth=ground_truth,
+                                                **config
+                                                )
+
         return images, ground_truth
 
 
-def get_generator(tfrecords, batch_size, buffer_size):
+def get_generator(tfrecords, batch_size, buffer_size, image_preprocess_config):
     data = tf.data.TFRecordDataset(tfrecords)
-    data = data.map(parse_function).shuffle(buffer_size=buffer_size).batch(batch_size).repeat()
+    data = data.map(lambda x: parse_function(x, image_preprocess_config)).shuffle(buffer_size=buffer_size).batch(batch_size).repeat()
     iterator = tf.data.Iterator.from_structure(data.output_types, data.output_shapes)
     init_op = iterator.make_initializer(data)
-    return iterator, init_op
+    return init_op, iterator
 
