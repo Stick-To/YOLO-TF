@@ -6,34 +6,31 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import utils.tfrecord_voc_utils as voc_utils
-from utils.image_preprocessing import image_preprocess
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 image_preprocess_config = {
     'data_format': 'channels_last',
-    'target_size': [512, 512],
-    'shorter_side': 513,
-    'is_random_crop': True,
-    'random_horizontal_flip': .5,
-    'random_vertical_flip': .5,
-    'pad_truth_to': 10
+    'target_size': [300, 300],
+    'shorter_side': 301,
+    'is_random_crop': False,
+    'random_horizontal_flip': 0.5,
+    'random_vertical_flip': 0.5,
+    'pad_truth_to': 50
 
 }
-tfrecord = voc_utils.dataset2tfrecord('..\\testfiles', '..\\VOC2007\\JPEGImages',
-                                      '.\\test\\', 'test', 1)
-init_op, iterator = voc_utils.get_generator(tfrecord, 4, 4, image_preprocess_config)
-sess = tf.Session()
+data = ['..\\test\\test_00000-of-00005.tfrecord',
+        '..\\test\\test_00001-of-00005.tfrecord',
+        '..\\test\\test_00002-of-00005.tfrecord',
+        '..\\test\\test_00003-of-00005.tfrecord',
+        '..\\test\\test_00004-of-00005.tfrecord']
+init_op, iterator = voc_utils.get_generator(data, 2, 10, image_preprocess_config)
+sess = tf.InteractiveSession()
 sess.run(tf.global_variables_initializer())
 sess.run(init_op)
 img, truth = iterator.get_next()
-img, truth = sess.run([img, truth])
-img = img.astype(np.int32)
-print(truth)
-plt.imshow(img[0])
-plt.show()
-plt.imshow(img[1])
-plt.show()
-plt.imshow(img[2])
-plt.show()
-plt.imshow(img[3])
-plt.show()
+for i in range(1000):
+    print(i)
+    img1, truth1 = sess.run([img, truth])
+
+
+

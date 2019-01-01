@@ -109,7 +109,6 @@ def parse_function(data, config):
                                                 ground_truth=ground_truth,
                                                 **config
                                                 )
-
         return images, ground_truth
 
 
