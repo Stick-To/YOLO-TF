@@ -4,6 +4,7 @@ import os
 import utils.tfrecord_voc_utils as voc_utils
 import YOLOv2 as yolov2
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from skimage import io, transform
 
 
@@ -14,23 +15,23 @@ if device_name is not '':
 else:
     print('Found GPU Device Failed!')
 
-lr = 0.01
+lr = 0.001
 batch_size = 24
-buffer_size = 100
-epochs = 500
-reduce_lr_epoch = [100, 300]
+buffer_size = 5011
+epochs = 160
+reduce_lr_epoch = []
 config = {
-    'mode': 'train',     # 'train', 'test'
+    'mode': 'test',     # 'train', 'test'
     'is_pretraining': False,
     'data_shape': [448, 448, 3],
     'num_classes': 20,
-    'weight_decay': 0,
+    'weight_decay': 5e-4,
     'keep_prob': 0.5,
     'data_format': 'channels_last',
     'batch_size': batch_size,
-    'coord_scale': 1.0,
-    'noobj_scale': 0.5,
-    'obj_scale': 1.,
+    'coord_scale': 1,
+    'noobj_scale': 1,
+    'obj_scale': 5.,
     'class_scale': 1.,
 
     'nms_score_threshold': 0.5,
@@ -47,7 +48,7 @@ image_preprocess_config = {
     'shorter_side': 480,
     'is_random_crop': False,
     'random_horizontal_flip': 0.5,
-    'random_vertical_flip': 0,
+    'random_vertical_flip': 0.,
     'pad_truth_to': 50
 }
 
@@ -67,8 +68,10 @@ trainset_provider = {
     'val_generator': None
 }
 
+
+
 testnet = yolov2.YOLOv2(config, trainset_provider)
-testnet.load_weight('/home/test/Desktop/YOLO-TF-master/weight/test-49088')
+# testnet.load_weight()
 for i in range(epochs):
     print('-'*25, 'epoch', i, '-'*25)
     if i in reduce_lr_epoch:
@@ -77,12 +80,18 @@ for i in range(epochs):
     mean_loss = testnet.train_one_epoch(lr)
     print('>> mean loss', mean_loss)
     testnet.save_weight('latest', './weight/test')
-# img = io.imread('/home/test/Desktop/YOLO-TF-master/VOC2007/JPEGImages/000005.jpg')
+# img = io.imread()
 # img = transform.resize(img, [448,448])
 # img = np.expand_dims(img, 0)
 # result = testnet.test_one_image(img)
-# print(result[0])
-# print(result[1]*448)
-# print(result[2])
+# scores = result[0]
+# bbox = result[1]
+# class_id = result[2]
+# print(scores, bbox, class_id)
+# plt.figure(1)
 # plt.imshow(np.squeeze(img))
+# axis = plt.gca()
+# for i in range(len(scores)):
+#     rect = patches.Rectangle((bbox[i][0],bbox[i][1]), bbox[i][2]-bbox[i][0],bbox[i][3]-bbox[i][1],linewidth=2,edgecolor='b',facecolor='none')
+#     axis.add_patch(rect)
 # plt.show()
