@@ -47,10 +47,10 @@ def xml_to_example(xmlpath, imgpath):
         obj = xpath[i]
         classid = classname_to_ids[obj.find('name').text]
         bndbox = obj.find('bndbox')
-        ymin = int(bndbox.find('ymin').text)
-        ymax = int(bndbox.find('ymax').text)
-        xmin = int(bndbox.find('xmin').text)
-        xmax = int(bndbox.find('xmax').text)
+        ymin = float(bndbox.find('ymin').text)
+        ymax = float(bndbox.find('ymax').text)
+        xmin = float(bndbox.find('xmin').text)
+        xmax = float(bndbox.find('xmax').text)
         ground_truth[i, :] = np.asarray([ymin, ymax, xmin, xmax, classid], np.float32)
     features = {
         'image': bytes_feature(image),
@@ -75,7 +75,7 @@ def dataset2tfrecord(xml_dir, img_dir, output_dir, name, total_shards=5):
     xmllist = tf.gfile.Glob(os.path.join(xml_dir, '*.xml'))
     num_per_shard = int(math.ceil(len(xmllist)) / float(total_shards))
     for shard_id in range(total_shards):
-        outputname = '%s_%05d-of-%05d.tfrecord' % (name, shard_id, total_shards)
+        outputname = '%s_%05d-of-%05d.tfrecord' % (name, shard_id+1, total_shards)
         outputname = os.path.join(output_dir, outputname)
         outputfiles.append(outputname)
         with tf.python_io.TFRecordWriter(outputname) as tf_writer:
