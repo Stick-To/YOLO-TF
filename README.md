@@ -1,14 +1,12 @@
 # YOLO-TF
 
-# to be test
-
-# YOLOv1
+# YOLOv1  to be test
 https://arxiv.org/abs/1506.02640
 
 # YOLOv2
 https://arxiv.org/abs/1612.08242
 
-# YOLOv3
+# YOLOv3 to be test
 
 https://arxiv.org/abs/1804.02767
 
