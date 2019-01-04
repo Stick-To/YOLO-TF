@@ -193,7 +193,7 @@ class YOLOv2:
                                                     ground_truth[i, ...])
                 total_loss.append(loss)
             total_loss = tf.reduce_mean(total_loss)
-            optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=0.9)
+            optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=.9)
             self.loss = .5 * total_loss + self.weight_decay * tf.add_n(
                 [tf.nn.l2_loss(var) for var in tf.trainable_variables('feature_extractor')]
             ) + self.weight_decay * tf.add_n(
@@ -220,6 +220,9 @@ class YOLOv2:
     def _init_session(self):
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
+        if self.mode == 'train':
+            if self.train_initializer is not None:
+                self.sess.run(self.train_initializer)
 
     def _create_pretraining_saver(self):
         weights = tf.trainable_variables(scope='feature_extractor')
@@ -409,7 +412,7 @@ class YOLOv2:
         for i in range(num_iters):
             _, loss, summaries = self.sess.run([self.train_op, self.loss, self.summary_op],
                                                feed_dict={self.lr: lr})
-            sys.stdout.write('\r>> ' + 'iters '+str(i)+str('/')+str(num_iters)+' loss '+str(loss))
+            sys.stdout.write('\r>> ' + 'iters '+str(i+1)+str('/')+str(num_iters)+' loss '+str(loss))
             sys.stdout.flush()
             mean_loss.append(loss)
             if writer is not None:
@@ -438,7 +441,7 @@ class YOLOv2:
             tf.gfile.MakeDirs(os.path.dirname(path))
             print(os.path.dirname(path), 'does not exist, create it done')
         saver.save(self.sess, path, global_step=self.global_step)
-        print('save', mode, 'model in', path, 'successfully')
+        print('>> save', mode, 'model in', path, 'successfully')
 
     def _save_detection_weight(self, mode, path):
         assert(mode in ['latest', 'best'])
@@ -450,11 +453,11 @@ class YOLOv2:
             tf.gfile.MakeDirs(os.path.dirname(path))
             print(os.path.dirname(path), 'does not exist, create it done')
         saver.save(self.sess, path, global_step=self.global_step)
-        print('save', mode, 'model in', path, 'successfully')
+        print('>> save', mode, 'model in', path, 'successfully')
 
     def load_weight(self, path):
         self.saver.restore(self.sess, path)
-        print('load model', path, 'successfully')
+        print('>> load model', path, 'successfully')
 
     def _bn(self, bottom):
         bn = tf.layers.batch_normalization(

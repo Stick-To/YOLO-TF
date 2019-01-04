@@ -114,7 +114,7 @@ def parse_function(data, config):
 
 def get_generator(tfrecords, batch_size, buffer_size, image_preprocess_config):
     data = tf.data.TFRecordDataset(tfrecords)
-    data = data.map(lambda x: parse_function(x, image_preprocess_config)).shuffle(buffer_size=buffer_size).batch(batch_size).repeat()
+    data = data.map(lambda x: parse_function(x, image_preprocess_config)).shuffle(buffer_size=buffer_size).batch(batch_size, drop_remainder=True).repeat()
     iterator = tf.data.Iterator.from_structure(data.output_types, data.output_shapes)
     init_op = iterator.make_initializer(data)
     return init_op, iterator
