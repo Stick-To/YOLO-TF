@@ -6,7 +6,7 @@ import YOLOv3 as yolov3
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from skimage import io, transform
-
+from utils.voc_classname_encoder import classname_to_ids
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 device_name = tf.test.gpu_device_name()

@@ -6,7 +6,7 @@ import YOLOv2 as yolov2
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from skimage import io, transform
-from utils.classname_encoder import classname_to_ids
+from utils.voc_classname_encoder import classname_to_ids
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
