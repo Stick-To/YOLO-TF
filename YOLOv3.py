@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import tensorflow as tf
-import warnings
 import os
 import numpy as np
 import sys
@@ -207,6 +206,7 @@ class YOLOv3:
     def _init_session(self):
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
+        self.sess.run(self.train_initializer)
 
     def _create_pretraining_saver(self):
         weights = tf.trainable_variables(scope='feature_extractor')
@@ -408,7 +408,7 @@ class YOLOv3:
         coord_loss = self.coord_sacle * tf.reduce_sum(tf.square(gbbox_loss - rnpbbox_loss))
 
         gclass = tf.one_hot(gclass_id, self.num_classes)
-        class_loss = self.class_scale * tf.reduce_sum(tf.square(gclass - rpclass))
+        class_loss = self.class_scale * tf.keras.backend.binary_crossentropy(gclass, rpclass)
         loss = obj_loss + coord_loss + class_loss
         return loss
 
