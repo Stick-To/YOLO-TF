@@ -174,6 +174,7 @@ class YOLOv3:
                                                      np3bbox_y2x2[i, ...], p3conft[i, ...], a3bbox_hw, rpriors_index3, rmask3,
                                                      ground_truth3[i, ...])
                 loss = loss1 + loss2 + loss3
+                print(loss)
                 total_loss.append(loss)
             total_loss = tf.reduce_mean(total_loss)
             optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=0.9)
@@ -408,7 +409,7 @@ class YOLOv3:
         coord_loss = self.coord_sacle * tf.reduce_sum(tf.square(gbbox_loss - rnpbbox_loss))
 
         gclass = tf.one_hot(gclass_id, self.num_classes)
-        class_loss = self.class_scale * tf.keras.backend.binary_crossentropy(gclass, rpclass)
+        class_loss = self.class_scale * tf.reduce_sum(tf.keras.backend.binary_crossentropy(gclass, rpclass))
         loss = obj_loss + coord_loss + class_loss
         return loss
 
@@ -460,6 +461,7 @@ class YOLOv3:
         mean_loss = []
         num_iters = self.num_train // self.batch_size
         for i in range(num_iters):
+
             _, loss, summaries = self.sess.run([self.train_op, self.loss, self.summary_op],
                                                feed_dict={self.lr: lr})
             sys.stdout.write('\r>> ' + 'iters '+str(i)+str('/')+str(num_iters)+' loss '+str(loss))
