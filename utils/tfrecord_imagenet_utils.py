@@ -112,7 +112,7 @@ def parse_function(data, config):
                                   shape=shape,
                                   **config
                                   )
-        return images, label, shape
+        return images, label
 
 
 def get_generator(tfrecords, batch_size, buffer_size, image_preprocess_config):
