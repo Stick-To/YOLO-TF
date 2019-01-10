@@ -230,7 +230,9 @@ class YOLOv2:
         self.best_saver = tf.train.Saver(weights)
 
     def _create_detection_saver(self):
-        weights = tf.trainable_variables(scope='feature_extractor') + tf.trainable_variables('regressor')
+        weights = tf.trainable_variables(scope='feature_extractor')
+        self.pretraining_weight_saver = tf.train.Saver(weights)
+        weights = weights + tf.trainable_variables('regressor')
         self.saver = tf.train.Saver(weights)
         self.best_saver = tf.train.Saver(weights)
 
@@ -457,7 +459,11 @@ class YOLOv2:
 
     def load_weight(self, path):
         self.saver.restore(self.sess, path)
-        print('>> load model', path, 'successfully')
+        print('>> load weight', path, 'successfully')
+
+    def load_pretraining_weight(self, path):
+        self.pretraining_weight_saver.restore(self.sess, path)
+        print('>> load pretraining weight', path, 'successfully')
 
     def _bn(self, bottom):
         bn = tf.layers.batch_normalization(
