@@ -79,7 +79,10 @@ class YOLOv3:
         shape = [self.batch_size]
         shape.extend(self.data_shape)
         mean = tf.convert_to_tensor([123.68, 116.779, 103.979], dtype=tf.float32)
-        mean = tf.reshape(mean, [1, 1, 1, 3])
+        if self.data_format == 'channels_last':
+            mean = tf.reshape(mean, [1, 1, 1, 3])
+        else:
+            mean = tf.reshape(mean, [1, 3, 1, 1])
         if self.mode == 'train':
             self.images, self.labels = self.train_iterator.get_next()
             self.images.set_shape(shape)
@@ -95,7 +98,10 @@ class YOLOv3:
         shape = [self.batch_size]
         shape.extend(self.data_shape)
         mean = tf.convert_to_tensor([123.68, 116.779, 103.979], dtype=tf.float32)
-        mean = tf.reshape(mean, [1, 1, 1, 3])
+        if self.data_format == 'channels_last':
+            mean = tf.reshape(mean, [1, 1, 1, 3])
+        else:
+            mean = tf.reshape(mean, [1, 3, 1, 1])
         if self.mode == 'train':
             self.images, self.ground_truth = self.train_iterator.get_next()
             self.images.set_shape(shape)
@@ -174,7 +180,6 @@ class YOLOv3:
                                                      np3bbox_y2x2[i, ...], p3conft[i, ...], a3bbox_hw, rpriors_index3, rmask3,
                                                      ground_truth3[i, ...])
                 loss = loss1 + loss2 + loss3
-                print(loss)
                 total_loss.append(loss)
             total_loss = tf.reduce_mean(total_loss)
             optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=0.9)

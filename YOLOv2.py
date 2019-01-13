@@ -72,7 +72,10 @@ class YOLOv2:
         shape = [self.batch_size]
         shape.extend(self.data_shape)
         mean = tf.convert_to_tensor([123.68, 116.779, 103.979], dtype=tf.float32)
-        mean = tf.reshape(mean, [1, 1, 1, 3])
+        if self.data_format == 'channels_last':
+            mean = tf.reshape(mean, [1, 1, 1, 3])
+        else:
+            mean = tf.reshape(mean, [1, 3, 1, 1])
         if self.mode == 'train':
             self.images, self.labels = self.train_iterator.get_next()
             self.images.set_shape(shape)
@@ -88,7 +91,10 @@ class YOLOv2:
         shape = [self.batch_size]
         shape.extend(self.data_shape)
         mean = tf.convert_to_tensor([123.68, 116.779, 103.979], dtype=tf.float32)
-        mean = tf.reshape(mean, [1, 1, 1, 3])
+        if self.data_format == 'channels_last':
+            mean = tf.reshape(mean, [1, 1, 1, 3])
+        else:
+            mean = tf.reshape(mean, [1, 3, 1, 1])
         if self.mode == 'train':
             self.images, self.ground_truth = self.train_iterator.get_next()
             self.images.set_shape(shape)
