@@ -193,12 +193,34 @@ class YOLOv2:
             abbox_hw = tf.reshape(abbox_hw, [1, -1, 2])
             abbox_y1x1 = tf.reshape(abbox_y1x1, [1, -1, 2])
             abbox_y2x2 = tf.reshape(abbox_y2x2, [1, -1, 2])
-            for i in range(self.batch_size):
-                loss = self._compute_one_image_loss(pclasst[i, ...], pbbox_loss[i, ...], npbbox_hw[i, ...], npbbox_y1x1[i, ...],
-                                                    npbbox_y2x2[i, ...], pconft[i, ...], abbox_hw, abbox_y1x1, abbox_y2x2,
-                                                    ground_truth[i, ...])
-                total_loss.append(loss)
-            total_loss = tf.reduce_mean(total_loss)
+            k = 0.
+            lossi = 0.
+            cond = lambda loss, i: tf.less(i, tf.cast(self.batch_size, tf.float32))
+            body = lambda loss, i: (
+                tf.add(loss, self._compute_one_image_loss(
+                    tf.squeeze(tf.gather(pclasst, tf.cast(i, tf.int32))),
+                    tf.squeeze(tf.gather(pbbox_loss, tf.cast(i, tf.int32))),
+                    tf.squeeze(tf.gather(npbbox_hw, tf.cast(i, tf.int32))),
+                    tf.squeeze(tf.gather(npbbox_y1x1, tf.cast(i, tf.int32))),
+                    tf.squeeze(tf.gather(npbbox_y2x2, tf.cast(i, tf.int32))),
+                    tf.squeeze(tf.gather(pconft, tf.cast(i, tf.int32))),
+                    abbox_hw,
+                    abbox_y1x1,
+                    abbox_y2x2,
+                    tf.squeeze(tf.gather(ground_truth, tf.cast(i, tf.int32))),
+                )),
+                tf.add(i, 1.)
+            )
+            init_state = (lossi, k)
+            state = tf.while_loop(cond, body, init_state, parallel_iterations=self.batch_size)
+            total_loss, _ = state
+            total_loss = total_loss / self.batch_size
+            # for i in range(self.batch_size):
+            #     loss = self._compute_one_image_loss(pclasst[i, ...], pbbox_loss[i, ...], npbbox_hw[i, ...], npbbox_y1x1[i, ...],
+            #                                         npbbox_y2x2[i, ...], pconft[i, ...], abbox_hw, abbox_y1x1, abbox_y2x2,
+            #                                         ground_truth[i, ...])
+            #     total_loss.append(loss)
+            # total_loss = tf.reduce_mean(total_loss)
             optimizer = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=.9)
             self.loss = .5 * total_loss + self.weight_decay * tf.add_n(
                 [tf.nn.l2_loss(var) for var in tf.trainable_variables('feature_extractor')]

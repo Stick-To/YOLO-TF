@@ -46,16 +46,8 @@ config = {
 #
 
 
-data = ['./data/test_00000-of-00010.tfrecord',
-        './data/test_00001-of-00010.tfrecord',
-        './data/test_00002-of-00010.tfrecord',
-        './data/test_00003-of-00010.tfrecord',
-        './data/test_00004-of-00010.tfrecord',
-        './data/test_00005-of-00010.tfrecord',
-        './data/test_00006-of-00010.tfrecord',
-        './data/test_00007-of-00010.tfrecord',
-        './data/test_00008-of-00010.tfrecord',
-        './data/test_00009-of-00010.tfrecord']
+data = ['./test/test_00000-of-00005.tfrecord',
+        './test/test_00001-of-00005.tfrecord']
 
 def get_datagen(input_shape, data, batch_size, buffer_size):
     image_preprocess_config = {
@@ -87,26 +79,25 @@ for i in range(epochs):
     if i in reduce_lr_epoch:
         lr = lr/10.
         print('reduce lr, lr=', lr, 'now')
-    print('>> shape', [416, 416, 3])
-    trainset_provider = get_datagen([416, 416, 3], data, batch_size, buffer_size)
-    mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
-    print('>> mean loss', mean_loss)
-    print('>> shape', [448, 448, 3])
+    # print('>> shape', [416, 416, 3])
+    # trainset_provider = get_datagen([416, 416, 3], data, batch_size, buffer_size)
+    # mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
+    # print('>> mean loss', mean_loss)
+    # print('>> shape', [448, 448, 3])
     trainset_provider = get_datagen([448, 448, 3], data, batch_size, buffer_size)
     mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
     print('>> mean loss', mean_loss)
-    print('>> shape', [480, 480, 3])
-    trainset_provider = get_datagen([480, 480, 3], data, batch_size, buffer_size)
-    mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
-    print('>> mean loss', mean_loss)
-
+    # print('>> shape', [480, 480, 3])
+    # trainset_provider = get_datagen([480, 480, 3], data, batch_size, buffer_size)
+    # mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
+    # print('>> mean loss', mean_loss)
     testnet.save_weight('latest', './weight/test')
+
+
 # img = io.imread('/home/test/Desktop/YOLO-TF-master/VOC/JPEGImages/000012.jpg')
 # img = transform.resize(img, [448,448])
 # img = np.expand_dims(img, 0)
 # result = testnet.test_one_image(img)
-
-
 # id_to_clasname = {k:v  for (v,k) in classname_to_ids.items()}
 # scores = result[0]
 # bbox = result[1]
