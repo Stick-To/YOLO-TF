@@ -97,4 +97,5 @@ for i in range(epochs):
 # for i in range(len(scores)):
 #     rect = patches.Rectangle((bbox[i][0],bbox[i][1]), bbox[i][2]-bbox[i][0],bbox[i][3]-bbox[i][1],linewidth=2,edgecolor='b',facecolor='none')
 #     axis.add_patch(rect)
+#     plt.text(bbox[i][1],bbox[i][0], id_to_clasname[class_id[i]]+str(' ')+str(scores[i]), color='red')
 # plt.show()

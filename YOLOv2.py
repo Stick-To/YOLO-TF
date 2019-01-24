@@ -229,10 +229,11 @@ class YOLOv2:
             )
             self.train_op = optimizer.minimize(self.loss, global_step=self.global_step)
         else:
-            scores = pclasst[0, ...] * tf.expand_dims(pconft[0, ...], axis=-1)
+            confidence = pclasst[0, ...] * tf.expand_dims(pconft[0, ...], axis=-1)
             npbbox_y1x1y2x2t = npbbox_y1x1y2x2t[0, ...]
-            class_id = tf.argmax(scores, axis=-1)
-            scores = tf.reduce_max(scores, axis=-1)
+            class_id = tf.argmax(confidence, axis=-1)
+
+            scores = tf.reduce_max(confidence, axis=-1)
             pred_mask = scores >= self.nms_score_threshold
             scores = tf.boolean_mask(scores, pred_mask)
             class_id = tf.boolean_mask(class_id, pred_mask)
@@ -240,10 +241,30 @@ class YOLOv2:
             selected_index = tf.image.non_max_suppression(
                 npbbox, scores, iou_threshold=self.nms_score_threshold, max_output_size=self.nms_max_boxes
             )
-            nbbox = tf.gather(npbbox, selected_index)
+            bbox = tf.gather(npbbox, selected_index)
             class_id = tf.gather(class_id, selected_index)
             scores = tf.gather(scores, selected_index)
-            self.detection_pred = [scores, nbbox, class_id]
+            self.detection_pred = [scores, bbox, class_id]
+
+            # per class nms
+            # filter_mask = tf.greater_equal(confidence, self.nms_score_threshold)
+            # scores = []
+            # class_id = []
+            # bbox = []
+            # for i in range(self.num_classes):
+            #     scoresi = tf.boolean_mask(scores[:, i], filter_mask[:, i])
+            #     bboxi = tf.boolean_mask(npbbox_y1x1y2x2t, filter_mask[:, i])
+            #     selected_indices = tf.image.non_max_suppression(
+            #
+            #         bboxi, scoresi, self.nms_max_boxes, self.nms_iou_threshold,
+            #     )
+            #     scores.append(tf.gather(scoresi, selected_indices))
+            #     bbox.append(tf.gather(bboxi, selected_indices))
+            #     class_id.append(tf.ones_like(tf.gather(scoresi, selected_indices), tf.int32) * i)
+            # bbox = tf.concat(bbox, axis=0)
+            # scores = tf.concat(scores, axis=0)
+            # class_id = tf.concat(class_id, axis=0)
+            # self.detection_pred = [scores, bbox, class_id]
 
     def _init_session(self):
         self.sess = tf.InteractiveSession()
