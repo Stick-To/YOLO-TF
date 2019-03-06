@@ -21,13 +21,13 @@ buffer_size = 2
 epochs = 160
 reduce_lr_epoch = []
 config = {
-    'mode': 'train',     # 'train', 'test'
-    'is_pretraining': False,  # if True, train network as a classifier
+    'mode': 'train',                                    # 'train', 'test'
+    'is_pretraining': False,                            # if True, train network as a classifier
     'data_shape': [448, 448, 3],
     'num_classes': 20,
     'weight_decay': 5e-4,
-    'keep_prob': 0.5,
-    'data_format': 'channels_last',
+    'keep_prob': 0.5,                                   # not used
+    'data_format': 'channels_last',                     # 'channels_last' 'channels_first'
     'batch_size': batch_size,
     'coord_scale': 1,
     'noobj_scale': 1,
@@ -48,7 +48,7 @@ config = {
 }
 
 image_preprocess_config = {
-    'data_format': 'channels_last',
+    'data_format': 'channels_last',                     # 'channels_last' 'channels_first'
     'target_size': [448, 448],
     'shorter_side': 480,
     'is_random_crop': False,
@@ -68,9 +68,9 @@ train_gen = voc_utils.get_generator(data,
 trainset_provider = {
     'data_shape': [448, 448, 3],
     'num_train': 5011,
-    'num_val': 0,
+    'num_val': 0,                                       # not used
     'train_generator': train_gen,
-    'val_generator': None
+    'val_generator': None                               # not used
 }
 
 testnet = yolov3.YOLOv3(config, trainset_provider)
@@ -82,7 +82,8 @@ for i in range(epochs):
         print('reduce lr, lr=', lr, 'now')
     mean_loss = testnet.train_one_epoch(lr)
     print('>> mean loss', mean_loss)
-    testnet.save_weight('latest', './weight/test')
+    testnet.save_weight('latest', './weight/test')       # 'latest', 'best'
+
 # img = io.imread()
 # img = transform.resize(img, [448,448])
 # img = np.expand_dims(img, 0)
