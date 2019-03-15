@@ -3,9 +3,9 @@ import numpy as np
 import os
 import utils.tfrecord_voc_utils as voc_utils
 import YOLOv3 as yolov3
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from skimage import io, transform
+# import matplotlib.pyplot as plt
+# import matplotlib.patches as patches
+# from skimage import io, transform
 from utils.voc_classname_encoder import classname_to_ids
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -16,8 +16,8 @@ else:
     print('Found GPU Device Failed!')
 
 lr = 0.001
-batch_size = 1
-buffer_size = 2
+batch_size = 32
+buffer_size = 1024
 epochs = 160
 reduce_lr_epoch = []
 config = {
@@ -47,24 +47,25 @@ config = {
                [3.6875, 7.4375], [3.625, 2.8125], [4.875, 6.1875], [11.65625, 10.1875]]
 }
 
-image_preprocess_config = {
-    'data_format': 'channels_last',                     # 'channels_last' 'channels_first'
-    'target_size': [448, 448],
-    'shorter_side': 480,
-    'is_random_crop': False,
-    'random_horizontal_flip': 0.5,
-    'random_vertical_flip': 0.,
-    'pad_truth_to': 50
+image_augmentor_config = {
+    'data_format': 'channels_last',
+    'output_shape': [448, 448],
+    'zoom_size': [480, 480],
+    'crop_method': 'random',
+    'flip_prob': [0., 0.5],
+    'fill_mode': 'BILINEAR',
+    'keep_aspect_ratios': True,
+    'constant_values': 0.,
+    'rotate_range': [-5., 5.],
+    'pad_truth_to': 60,
 }
 
+
 data = ['./test/test_00000-of-00005.tfrecord',
-        './test/test_00001-of-00005.tfrecord',
-        './test/test_00002-of-00005.tfrecord',
-        './test/test_00003-of-00005.tfrecord',
-        './test/test_00004-of-00005.tfrecord']
+        './test/test_00001-of-00005.tfrecord',]
 
 train_gen = voc_utils.get_generator(data,
-                                    batch_size, buffer_size, image_preprocess_config)
+                                    batch_size, buffer_size, image_augmentor_config)
 trainset_provider = {
     'data_shape': [448, 448, 3],
     'num_train': 5011,

@@ -17,10 +17,10 @@ else:
     print('Found GPU Device Failed!')
 
 lr = 0.01
-batch_size = 24
-buffer_size = 256
+batch_size = 32
+buffer_size = 1024
 epochs = 280
-input_shape = [480, 480 ,3]
+input_shape = [480, 480, 3]
 reduce_lr_epoch = [120, 250]
 config = {
     'mode': 'train',                                 # 'train', 'test'
@@ -43,59 +43,42 @@ config = {
     'rescore_confidence': False,
     'priors': [[1.08, 1.19], [3.42, 4.41], [6.63, 11.38], [9.42, 5.11], [16.62, 10.52]]
 }
-#
-
 
 data = ['./test/test_00000-of-00005.tfrecord',
         './test/test_00001-of-00005.tfrecord']
 
+image_augmentor_config = {
+    'data_format': 'channels_last',
+    'output_shape': [480, 480],
+    'zoom_size': [500, 500],
+    'crop_method': 'random',
+    'flip_prob': [0., 0.5],
+    'fill_mode': 'BILINEAR',
+    'keep_aspect_ratios': True,
+    'constant_values': 0.,
+    'rotate_range': [-5., 5.],
+    'pad_truth_to': 60,
+}
+train_gen = voc_utils.get_generator(data,
+                                    batch_size, buffer_size, image_augmentor_config)
+train_provider = {
+    'data_shape': input_shape,
+    'num_train': 22136,
+    'num_val': 0,
+    'train_generator': train_gen,
+    'val_generator': None
+}
 
-def get_datagen(input_shape, data, batch_size, buffer_size):
-    image_preprocess_config = {
-        'data_format': 'channels_last',                  # 'channels_last' 'channels_first'
-        'target_size': [input_shape[0], input_shape[1]],
-        'shorter_side': 480,
-        'is_random_crop': False,
-        'random_horizontal_flip': 0.5,                   # <=1.0
-        'random_vertical_flip': 0.,                      # <=1.0
-        'pad_truth_to': 60                               # >=2 , > the maximum of number of bbox per image + 1
-    }
-    train_gen = voc_utils.get_generator(data,
-                                        batch_size, buffer_size, image_preprocess_config)
-    train_provider = {
-        'data_shape': input_shape,
-        'num_train': 22136,
-        'num_val': 0,
-        'train_generator': train_gen,
-        'val_generator': None
-    }
-    return train_provider
 
-
-trainset_provider = get_datagen(input_shape, data, batch_size, buffer_size)
-testnet = yolov2.YOLOv2(config, trainset_provider)
+testnet = yolov2.YOLOv2(config, train_provider)
 # testnet.load_weight()
 for i in range(epochs):
     print('-'*25, 'epoch', i, '-'*25)
     if i in reduce_lr_epoch:
         lr = lr/10.
         print('reduce lr, lr=', lr, 'now')
-
-    # print('>> shape', [416, 416, 3])
-    # trainset_provider = get_datagen([416, 416, 3], data, batch_size, buffer_size)
-    # mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
-    # print('>> mean loss', mean_loss)
-    # print('>> shape', [448, 448, 3])
-
-    trainset_provider = get_datagen([448, 448, 3], data, batch_size, buffer_size)
-    mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
+    mean_loss = testnet.train_one_epoch(lr)
     print('>> mean loss', mean_loss)
-
-    # print('>> shape', [480, 480, 3])
-    # trainset_provider = get_datagen([480, 480, 3], data, batch_size, buffer_size)
-    # mean_loss = testnet.train_one_epoch(lr, data_provider=trainset_provider)
-    # print('>> mean loss', mean_loss)
-
     testnet.save_weight('latest', './weight/test')       # 'latest', 'best'
 
 
