@@ -1,8 +1,5 @@
 # YOLO-TF
 
-# YOLOv1 
-https://arxiv.org/abs/1506.02640
-
 # YOLOv2
 https://arxiv.org/abs/1612.08242
 
@@ -14,6 +11,10 @@ https://arxiv.org/abs/1612.08242
 https://arxiv.org/abs/1804.02767
 
 ![image](https://github.com/Stick-To/YOLO-TF/blob/master/image/img2.png)
+
+# Train your own data
+
+see readme.md of https://github.com/Stick-To/Object-Detection-API-Tensorflow
 
 # Experimental Environment
 
